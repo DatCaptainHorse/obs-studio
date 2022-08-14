@@ -1427,6 +1427,8 @@ void OBSBasicSettings::LoadRendererList()
 	if (opt_allow_opengl || strcmp(renderer, "OpenGL") == 0)
 		ui->renderer->addItem(QT_UTF8("OpenGL"));
 
+	ui->renderer->addItem(QT_UTF8("Vulkan"));
+
 	int idx = ui->renderer->findText(QT_UTF8(renderer));
 	if (idx == -1)
 		idx = 0;

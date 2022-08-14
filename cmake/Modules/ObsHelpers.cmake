@@ -307,7 +307,7 @@ endfunction()
 
 # Helper function to define available graphics modules for targets
 function(define_graphic_modules target)
-  foreach(_GRAPHICS_API metal d3d11 opengl d3d9)
+  foreach(_GRAPHICS_API metal d3d11 opengl d3d9 vulkan)
     string(TOUPPER ${_GRAPHICS_API} _GRAPHICS_API_u)
     if(TARGET OBS::libobs-${_GRAPHICS_API})
       if(OS_POSIX AND NOT LINUX_PORTABLE)

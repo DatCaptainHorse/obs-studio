@@ -1441,7 +1441,9 @@ const char *OBSApp::GetRenderModule() const
 	const char *renderer =
 		config_get_string(globalConfig, "Video", "Renderer");
 
-	return (astrcmpi(renderer, "Direct3D 11") == 0) ? DL_D3D11 : DL_OPENGL;
+	return (astrcmpi(renderer, "Direct3D 11") == 0) ? DL_D3D11
+	       : (astrcmpi(renderer, "Vulkan") == 0)    ? DL_VULKAN
+							: DL_OPENGL;
 }
 
 static bool StartupOBS(const char *locale, profiler_name_store_t *store)

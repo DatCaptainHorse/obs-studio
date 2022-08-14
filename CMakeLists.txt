@@ -81,6 +81,7 @@ if(OS_WINDOWS)
   add_subdirectory(libobs-d3d11)
   add_subdirectory(libobs-winrt)
 endif()
+add_subdirectory(libobs-vulkan)
 add_subdirectory(libobs)
 add_subdirectory(plugins)
 
