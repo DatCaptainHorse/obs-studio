@@ -17,73 +17,29 @@
 
 #include "vk-subsystem.hpp"
 
-/* Shared Vulkan instance */
-static vulkan_instance *sharedVulkanInstance = nullptr;
+/* General Vulkan instance */
+inline vulkan_instance *sharedInstance = nullptr;
 
-vulkan_instance::vulkan_instance(std::vector<const char *> requestedLayers,
-				 std::vector<const char *> requestedExtensions)
+static inline void LogVulkanDevices()
 {
-	/* TODO: Hardcoded versions for now */
-	vk::ApplicationInfo applicationInfo = {};
-	applicationInfo.pApplicationName = "OBS-Studio";
-	applicationInfo.applicationVersion = 280000;
-	applicationInfo.pEngineName = "libobs-vulkan";
-	applicationInfo.engineVersion = 100000; /* 1.0.0 */
-	applicationInfo.apiVersion = VK_API_VERSION_1_1;
+	const auto instance = sharedInstance->vulkanInstance;
 
-	vk::InstanceCreateInfo instanceCreateInfo = {};
-	instanceCreateInfo.pApplicationInfo = &applicationInfo;
-	instanceCreateInfo.enabledLayerCount =
-		static_cast<std::uint32_t>(requestedLayers.size());
-	instanceCreateInfo.ppEnabledLayerNames = requestedLayers.data();
-	instanceCreateInfo.enabledExtensionCount =
-		static_cast<std::uint32_t>(requestedExtensions.size());
-	instanceCreateInfo.ppEnabledExtensionNames = requestedExtensions.data();
-
-	try {
-		instance = vk::createInstance(instanceCreateInfo);
-	} catch (const vk::SystemError &e) {
-		throw std::runtime_error(e.what());
-	}
-}
-
-vulkan_instance::~vulkan_instance()
-{
-	instance.destroy();
-}
-
-const char *device_get_name(void)
-{
-	return "Vulkan";
-}
-
-int device_get_type(void)
-{
-	return GS_DEVICE_VULKAN;
-}
-
-const char *device_preprocessor_name(void)
-{
-	return "_VULKAN";
-}
-
-static inline void LogVulkanDevices(const vk::Instance &instance)
-{
 	blog(LOG_INFO, "Available Vulkan Devices: ");
 
-	std::uint32_t i = 0;
-	for (const auto &physicalDevice : instance.enumeratePhysicalDevices()) {
-		const auto &properties = physicalDevice.getProperties();
-		const auto &memoryProperties =
+	uint32_t i = 0;
+	for (const auto physicalDevice : instance.enumeratePhysicalDevices()) {
+		const auto properties = physicalDevice.getProperties();
+		const auto memoryProperties =
 			physicalDevice.getMemoryProperties();
 
 		blog(LOG_INFO, "\tDevice %u: %s", i, properties.deviceName);
 
 		/* device dedicated and shared vram */
-		for (std::uint32_t j = 0; j < memoryProperties.memoryHeapCount;
+		for (uint32_t j = 0; j < memoryProperties.memoryHeapCount;
 		     j++) {
-			const auto &memoryHeap =
+			const auto memoryHeap =
 				memoryProperties.memoryHeaps[j];
+
 			if (memoryHeap.flags &
 			    vk::MemoryHeapFlagBits::eDeviceLocal) {
 				blog(LOG_INFO, "\t  Dedicated VRAM: %u",
@@ -118,15 +74,22 @@ static inline void LogVulkanDevices(const vk::Instance &instance)
 	}
 }
 
-int device_create(gs_device_t **p_device, uint32_t adapter)
+static inline vk::PhysicalDevice GetVulkanDevice(uint32_t adapter)
 {
-	gs_device *device = NULL;
-	int errorcode = GS_SUCCESS;
+	const auto instance = sharedInstance->vulkanInstance;
+	const auto physicalDevices = instance.enumeratePhysicalDevices();
+	if (adapter >= physicalDevices.size())
+		throw std::runtime_error("Invalid adapter index");
 
-	if (sharedVulkanInstance == nullptr) {
-		blog(LOG_INFO, "---------------------------------");
-		blog(LOG_INFO, "Initializing Vulkan...");
-		sharedVulkanInstance = new vulkan_instance(
+	return physicalDevices[adapter];
+}
+
+static inline int InitializeInstance()
+{
+	blog(LOG_INFO, "---------------------------------");
+	blog(LOG_INFO, "Initializing Vulkan...");
+	try {
+		sharedInstance = new vulkan_instance(
 			{
 #ifdef _DEBUG
 				"VK_LAYER_KHRONOS_validation"
@@ -137,12 +100,49 @@ int device_create(gs_device_t **p_device, uint32_t adapter)
 				VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
 				VK_KHR_SURFACE_EXTENSION_NAME});
+	} catch (const std::runtime_error &e) {
+		blog(LOG_ERROR, "InitializeInstance: %s", e.what());
+		return GS_ERROR_FAIL;
 	}
 
-	LogVulkanDevices(sharedVulkanInstance->instance);
+	LogVulkanDevices();
 
-	*p_device = device;
-	return errorcode;
+	return GS_SUCCESS;
+}
+
+const char *device_get_name(void)
+{
+	return "Vulkan";
+}
+
+int device_get_type(void)
+{
+	return GS_DEVICE_VULKAN;
+}
+
+const char *device_preprocessor_name(void)
+{
+	return "_VULKAN";
+}
+
+int device_create(gs_device_t **p_device, uint32_t adapter)
+{
+	int result = GS_SUCCESS;
+	if (sharedInstance == nullptr &&
+	    (result = InitializeInstance()) != GS_SUCCESS)
+		return result;
+
+	try {
+		sharedInstance->devices.emplace_back(
+			std::make_unique<gs_device>(sharedInstance,
+						    GetVulkanDevice(adapter)));
+	} catch (const std::runtime_error &e) {
+		blog(LOG_ERROR, "device_create (Vulkan): %s", e.what());
+		return GS_ERROR_FAIL;
+	}
+
+	*p_device = sharedInstance->devices.back().get();
+	return result;
 }
 
 void device_destroy(gs_device_t *device)
@@ -156,14 +156,21 @@ void *device_get_device_obj(gs_device_t *device)
 	return nullptr;
 }
 
-// TODO: Move device specific functions to vk-device.cpp
-
 gs_swapchain_t *device_swapchain_create(gs_device_t *device,
 					const struct gs_init_data *data)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(data);
-	return nullptr;
+	gs_swap_chain *swapchain = nullptr;
+
+	try {
+		swapchain =
+			static_cast<gs_device *>(device)->CreateSwapchain(data);
+	} catch (const std::runtime_error &e) {
+		blog(LOG_ERROR, "device_swapchain_create (Vulkan): %s",
+		     e.what());
+		return nullptr;
+	}
+
+	return swapchain;
 }
 
 static void device_resize_internal(gs_device_t *device, uint32_t cx,
@@ -218,14 +225,16 @@ gs_texture_t *device_texture_create(gs_device_t *device, uint32_t width,
 				    uint32_t levels, const uint8_t **data,
 				    uint32_t flags)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(width);
-	UNUSED_PARAMETER(height);
-	UNUSED_PARAMETER(color_format);
-	UNUSED_PARAMETER(levels);
-	UNUSED_PARAMETER(data);
-	UNUSED_PARAMETER(flags);
-	return nullptr;
+	gs_texture *texture = nullptr;
+
+	try {
+		texture = new gs_texture_2d(device, width, height, color_format,
+					    data, flags);
+	} catch (const std::runtime_error &e) {
+		blog(LOG_ERROR, "device_texture_create (Vulkan): %s", e.what());
+	}
+
+	return texture;
 }
 
 gs_texture_t *device_cubetexture_create(gs_device_t *device, uint32_t size,
@@ -271,69 +280,20 @@ gs_zstencil_t *device_zstencil_create(gs_device_t *device, uint32_t width,
 	return nullptr;
 }
 
-gs_stagesurf_t *device_stagesurface_create(gs_device_t *device, uint32_t width,
-					   uint32_t height,
-					   enum gs_color_format color_format)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(width);
-	UNUSED_PARAMETER(height);
-	UNUSED_PARAMETER(color_format);
-	return nullptr;
-}
-
 gs_samplerstate_t *
 device_samplerstate_create(gs_device_t *device,
 			   const struct gs_sampler_info *info)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(info);
-	return nullptr;
-}
+	gs_sampler_state *ss = nullptr;
 
-gs_shader_t *device_vertexshader_create(gs_device_t *device,
-					const char *shader_string,
-					const char *file, char **error_string)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(shader_string);
-	UNUSED_PARAMETER(file);
-	UNUSED_PARAMETER(error_string);
-	return nullptr;
-}
+	try {
+		ss = new gs_sampler_state(device, info);
+	} catch (const std::runtime_error &err) {
+		blog(LOG_ERROR, "device_samplerstate_create (Vulkan): %s ",
+		     err.what());
+	}
 
-gs_shader_t *device_pixelshader_create(gs_device_t *device,
-				       const char *shader_string,
-				       const char *file, char **error_string)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(shader_string);
-	UNUSED_PARAMETER(file);
-	UNUSED_PARAMETER(error_string);
-	return nullptr;
-}
-
-gs_vertbuffer_t *device_vertexbuffer_create(gs_device_t *device,
-					    struct gs_vb_data *data,
-					    uint32_t flags)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(data);
-	UNUSED_PARAMETER(flags);
-	return nullptr;
-}
-
-gs_indexbuffer_t *device_indexbuffer_create(gs_device_t *device,
-					    enum gs_index_type type,
-					    void *indices, size_t num,
-					    uint32_t flags)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(type);
-	UNUSED_PARAMETER(indices);
-	UNUSED_PARAMETER(num);
-	UNUSED_PARAMETER(flags);
-	return nullptr;
+	return ss;
 }
 
 gs_timer_t *device_timer_create(gs_device_t *device)
@@ -516,11 +476,13 @@ void device_stage_texture(gs_device_t *device, gs_stagesurf_t *dst,
 
 void device_enter_context(gs_device_t *device)
 {
+	/* unused */
 	UNUSED_PARAMETER(device);
 }
 
 void device_leave_context(gs_device_t *device)
 {
+	/* unused */
 	UNUSED_PARAMETER(device);
 }
 
@@ -534,6 +496,15 @@ void device_begin_scene(gs_device_t *device)
 	UNUSED_PARAMETER(device);
 }
 
+void device_clear(gs_device_t *device, uint32_t clear_flags,
+		  const struct vec4 *color, float depth, uint8_t stencil)
+{
+	UNUSED_PARAMETER(device);
+	UNUSED_PARAMETER(clear_flags);
+	UNUSED_PARAMETER(color);
+	UNUSED_PARAMETER(depth);
+}
+
 void device_draw(gs_device_t *device, enum gs_draw_mode draw_mode,
 		 uint32_t start_vert, uint32_t num_verts)
 {
@@ -541,6 +512,91 @@ void device_draw(gs_device_t *device, enum gs_draw_mode draw_mode,
 	UNUSED_PARAMETER(draw_mode);
 	UNUSED_PARAMETER(start_vert);
 	UNUSED_PARAMETER(num_verts);
+}
+
+bool device_is_present_ready(gs_device_t *device)
+{
+	UNUSED_PARAMETER(device);
+	return true;
+}
+
+void device_present(gs_device_t *device)
+{
+	if (!device->currentSwapchain)
+		return;
+
+	const auto logicalDevice = device->GetLogicalDevice();
+
+	auto result = logicalDevice.waitForFences(
+		1, &device->inFlightFences[device->currentFrame], true,
+		std::numeric_limits<uint64_t>::max());
+
+	if (result != vk::Result::eSuccess) {
+		blog(LOG_ERROR, "waitForFences failed: %s",
+		     vk::to_string(result).c_str());
+
+		return;
+	}
+
+	result = logicalDevice.acquireNextImageKHR(
+		device->currentSwapchain->swapchainKHR,
+		std::numeric_limits<uint64_t>::max(),
+		device->imageAvailableSemaphore, nullptr,
+		&device->currentFrame);
+
+	if (result == vk::Result::eErrorOutOfDateKHR ||
+	    result == vk::Result::eSuboptimalKHR) {
+		// TODO: Recreate swapchains
+		return;
+	} else if (result != vk::Result::eSuccess) {
+		blog(LOG_ERROR, "%s: acquireNextImageKHR failed: %s",
+		     device->deviceName.c_str(), vk::to_string(result).c_str());
+		return;
+	}
+
+	vk::PipelineStageFlags waitStage =
+		vk::PipelineStageFlagBits::eColorAttachmentOutput;
+
+	const vk::SubmitInfo submitInfo(
+		1, &device->imageAvailableSemaphore, &waitStage, 1,
+		&device->commandBuffers[device->currentFrame], 1,
+		&device->renderFinishedSemaphore);
+
+	result = logicalDevice.resetFences(
+		1, &device->inFlightFences[device->currentFrame]);
+
+	if (result != vk::Result::eSuccess) {
+		blog(LOG_ERROR, "%s: Failed to reset fence",
+		     device->deviceName.c_str());
+		return;
+	}
+
+	if (device->queue.submit(1, &submitInfo,
+				 device->inFlightFences[device->currentFrame]) !=
+	    vk::Result::eSuccess) {
+		blog(LOG_ERROR, "%s: Failed to submit draw command buffer",
+		     device->deviceName.c_str());
+		return;
+	}
+
+	const vk::PresentInfoKHR presentInfo(
+		1, &device->renderFinishedSemaphore, 1,
+		&device->currentSwapchain->swapchainKHR, &device->currentFrame);
+
+	try {
+		const auto result = device->queue.presentKHR(presentInfo);
+		if (result == vk::Result::eErrorOutOfDateKHR ||
+		    result == vk::Result::eSuboptimalKHR) {
+			// TODO: Recreate swapchains
+			return;
+		}
+	} catch (const vk::Error &e) {
+		blog(LOG_ERROR, "%s: Failed to present swapchain: %s",
+		     device->deviceName.c_str(), e.what());
+	}
+
+	device->currentFrame = (device->currentFrame + 1) %
+			       device->currentSwapchain->imageCount;
 }
 
 void device_end_scene(gs_device_t *device)
@@ -552,26 +608,6 @@ void device_load_swapchain(gs_device_t *device, gs_swapchain_t *swapchain)
 {
 	UNUSED_PARAMETER(device);
 	UNUSED_PARAMETER(swapchain);
-}
-
-void device_clear(gs_device_t *device, uint32_t clear_flags,
-		  const struct vec4 *color, float depth, uint8_t stencil)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(clear_flags);
-	UNUSED_PARAMETER(color);
-	UNUSED_PARAMETER(stencil);
-}
-
-bool device_is_present_ready(gs_device_t *device)
-{
-	UNUSED_PARAMETER(device);
-	return false;
-}
-
-void device_present(gs_device_t *device)
-{
-	UNUSED_PARAMETER(device);
 }
 
 void device_flush(gs_device_t *device)
@@ -900,12 +936,6 @@ void gs_vertexbuffer_flush_direct(gs_vertbuffer_t *vertbuffer,
 	UNUSED_PARAMETER(data);
 }
 
-struct gs_vb_data *gs_vertexbuffer_get_data(const gs_vertbuffer_t *vertbuffer)
-{
-	UNUSED_PARAMETER(vertbuffer);
-	return nullptr;
-}
-
 void gs_indexbuffer_destroy(gs_indexbuffer_t *indexbuffer)
 {
 	UNUSED_PARAMETER(indexbuffer);
@@ -928,12 +958,6 @@ void gs_indexbuffer_flush_direct(gs_indexbuffer_t *indexbuffer,
 {
 	UNUSED_PARAMETER(indexbuffer);
 	UNUSED_PARAMETER(data);
-}
-
-void *gs_indexbuffer_get_data(const gs_indexbuffer_t *indexbuffer)
-{
-	UNUSED_PARAMETER(indexbuffer);
-	return nullptr;
 }
 
 size_t gs_indexbuffer_get_num_indices(const gs_indexbuffer_t *indexbuffer)

@@ -17,18 +17,25 @@
 
 #pragma once
 
+#include <array>
 #include <tuple>
+#include <string>
 #include <vector>
-#include <cstdint>
+#include <limits>
+#include <memory>
+#include <algorithm>
 
-/* TODO: Other platforms */
-#define VK_USE_PLATFORM_WIN32_KHR
-
-#include <vulkan/vulkan.hpp>
+#include "vk-includes.hpp"
 
 #include <util/base.h>
 #include <graphics/graphics.h>
 #include <graphics/device-exports.h>
+
+struct gs_device;
+struct gs_buffer;
+struct shader_var;
+struct shader_sampler;
+struct vulkan_instance;
 
 static inline const char *GetVulkanVendor(std::uint32_t vendorID)
 {
@@ -68,8 +75,8 @@ static inline const char *GetVulkanDeviceType(vk::PhysicalDeviceType type)
 	}
 }
 
-static inline const char *GetVulkanDriverVersion(std::uint32_t driverVersion,
-						 std::uint32_t vendorID)
+static inline const char *GetVulkanDriverVersion(uint32_t driverVersion,
+						 uint32_t vendorID)
 {
 	char *version = new char[32];
 	switch (vendorID) {
@@ -92,25 +99,253 @@ static inline const char *GetVulkanDriverVersion(std::uint32_t driverVersion,
 	return version;
 }
 
+struct vulkan_surface {
+	uint32_t width, height;
+	vk::SurfaceKHR surfaceKHR;
+	vulkan_instance *instance;
+
+	vulkan_surface(vulkan_instance *_instance, const gs_init_data *data);
+	~vulkan_surface();
+};
+
+struct vulkan_image {
+	vk::Image image;
+	vk::ImageView imageView;
+	vk::DeviceMemory deviceMemory;
+
+	inline vulkan_image() {}
+	inline vulkan_image(vk::Image image) : image(image) {}
+};
+
+struct gs_swap_chain {
+	gs_init_data initData;
+	vk::Extent2D extent;
+	vk::SwapchainKHR swapchainKHR;
+	vk::Format format;
+	vk::ColorSpaceKHR colorSpaceKHR;
+	vk::PresentModeKHR presentModeKHR;
+	uint32_t imageCount;
+	std::vector<vulkan_image> colorImages;
+	std::vector<vulkan_image> depthImages;
+	std::unique_ptr<vulkan_surface> surface;
+
+	// TODO: Constructor 'n destructor, recreation of swapchain
+};
+
+struct gs_stage_surface {
+	gs_device_t *device;
+	gs_color_format format;
+	uint32_t width, height, bytes_per_pixel;
+
+	std::unique_ptr<gs_buffer> packBuffer;
+
+	gs_stage_surface() {}
+	gs_stage_surface(gs_device_t *_device, gs_color_format _format,
+			 uint32_t _width, uint32_t _height);
+};
+
+struct gs_sampler_state {
+	gs_device_t *device;
+	gs_sampler_info info;
+	vk::Sampler sampler;
+
+	gs_sampler_state() {}
+	gs_sampler_state(gs_device_t *device, const gs_sampler_info *_info);
+	gs_sampler_state(gs_device_t *device, vk::SamplerCreateInfo _info);
+};
+
+struct gs_buffer {
+	gs_device_t *device;
+	void *mapped;
+	vk::Buffer buffer;
+	vk::DeviceSize deviceSize;
+	vk::DeviceMemory deviceMemory;
+	vk::BufferUsageFlags bufferUsageFlags;
+	vk::MemoryPropertyFlags memoryPropertyFlags;
+
+	void Map();
+	void Unmap();
+
+	gs_buffer() {}
+	gs_buffer(gs_device_t *_device, vk::DeviceSize size,
+		  vk::BufferUsageFlags usage,
+		  vk::MemoryPropertyFlags properties);
+
+	~gs_buffer();
+};
+
+struct gs_vertex_buffer : gs_buffer {
+	gs_vb_data *vbd;
+	gs_vertex_buffer(gs_device_t *_device, vk::DeviceSize size,
+			 const void *data);
+};
+
+struct gs_index_buffer : gs_buffer {
+	void *indices;
+	gs_index_buffer(gs_device_t *_device, vk::DeviceSize size,
+			const void *data);
+};
+
+struct gs_uniform_buffer : gs_buffer {
+	gs_uniform_buffer() {}
+	gs_uniform_buffer(gs_device_t *_device, vk::DeviceSize size,
+			  const void *data);
+};
+
+struct gs_texture {
+	gs_device_t *device;
+	gs_texture_type type;
+	gs_color_format format;
+	uint32_t flags;
+	vulkan_image image;
+	gs_sampler_state sampler;
+	std::unique_ptr<gs_buffer> buffer;
+	std::unique_ptr<gs_buffer> unpackBuffer;
+
+	inline gs_texture(gs_device_t *_device, gs_texture_type _type)
+		: device(_device), type(_type)
+	{
+	}
+
+	inline gs_texture(gs_texture_type _type,
+			  gs_color_format _format)
+		: type(_type), format(_format)
+	{
+	}
+
+	inline gs_texture(gs_device_t *_device,
+			  gs_texture_type _type, gs_color_format _format, uint32_t _flags)
+		: device(_device), type(_type), format(_format), flags(_flags)
+	{
+	}
+};
+
+struct gs_texture_2d : gs_texture {
+	uint32_t width = 0, height = 0;
+
+	inline gs_texture_2d() : gs_texture(GS_TEXTURE_2D, GS_UNKNOWN) {}
+
+	gs_texture_2d(gs_device_t *_device, uint32_t _width, uint32_t _height,
+		      gs_color_format colorFormat, const uint8_t *const *_data,
+		      uint32_t flags);
+};
+
+struct gs_shader_param {
+	std::string name;
+	gs_shader_param_type type;
+
+	int arrayCount;
+
+	size_t pos;
+
+	std::vector<uint8_t> curValue;
+	std::vector<uint8_t> defaultValue;
+	bool changed;
+
+	gs_shader_param(shader_var &var);
+};
+
+struct gs_shader {
+	gs_device_t *device;
+	gs_shader_type type;
+	vk::Pipeline pipeline;
+	std::vector<uint32_t> spirv;
+	vk::ShaderModule vertexModule, fragmentModule;
+	std::vector<gs_shader_param> params;
+	std::unique_ptr<gs_uniform_buffer> uniformBuffer;
+	size_t constantSize;
+
+	void BuildConstantBuffer();
+
+	gs_shader(gs_device_t *device, gs_shader_type type, const char *source, const char *file);
+	~gs_shader();
+};
+
+struct gs_vertex_shader : gs_shader {
+	gs_vertex_shader(gs_device_t *device, const char *source, const char *file);
+};
+
+struct gs_fragment_shader : gs_shader {
+	gs_fragment_shader(gs_device_t *device, const char *source, const char *file);
+};
+
 struct gs_device {
-	char *deviceName;
-	std::uint32_t vendorID;
+	vulkan_instance *instance = nullptr;
+
+	std::string deviceName;
+	uint32_t deviceID, vendorID;
 	std::tuple<vk::PhysicalDevice, vk::Device> device;
+
 	vk::Queue queue;
+	uint32_t queueFamilyIndex = 0;
+	std::unique_ptr<gs_swap_chain> currentSwapchain = nullptr;
+
+	vk::DescriptorSetLayout descriptorSetLayout;
+	vk::DescriptorPool descriptorPool;
+
+	vk::RenderPass renderPass;
+	vk::PipelineLayout pipelineLayout;
+	std::vector<vk::Framebuffer> framebuffers;
+
 	vk::CommandPool commandPool;
 	std::vector<vk::CommandBuffer> commandBuffers;
-	vk::DescriptorPool descriptorPool;
-	vk::DescriptorSetLayout descriptorSetLayout;
 
-	gs_device(const vk::PhysicalDevice &physicalDevice);
+	uint32_t currentFrame = 0;
+	std::vector<vk::Fence> inFlightFences;
+	vk::Semaphore imageAvailableSemaphore, renderFinishedSemaphore;
+
+	void CreateLogicalDevice();
+	void CreateRenderPasses();
+	void CreateSwapchainImageViews();
+	void CreateDescriptorSetLayout();
+	void CreatePipelineLayout();
+	void CreateCommandPool();
+	void CreateDescriptorPool();
+	void CreateFramebuffers();
+	void CreateCommandBuffers();
+	void CreateSyncObjects();
+
+	vk::Pipeline CreateGraphicsPipeline(vk::ShaderModule vertexShader,
+					    vk::ShaderModule fragmentShader);
+
+	vk::ShaderModule CreateShaderModule(gs_shader *shader);
+
+	gs_swap_chain *CreateSwapchain(const gs_init_data *data);
+	vk::CommandBuffer BeginCommandBuffer();
+	void EndCommandBuffer(const vk::CommandBuffer &commandBuffer);
+
+	vulkan_image CreateImage(uint32_t width, uint32_t height,
+				 vk::Format format, vk::ImageTiling tiling,
+				 vk::ImageUsageFlags usage,
+				 vk::MemoryPropertyFlags properties);
+
+	vk::ImageView CreateImageView(vk::Image image,
+				      vk::ImageViewType viewType,
+				      vk::Format format,
+				      vk::ImageAspectFlags aspectFlags);
+
+	vk::Format FindSupportedFormat(const std::vector<vk::Format> &formats,
+				       vk::ImageTiling tiling,
+				       vk::FormatFeatureFlags featureFlags);
+
+	inline vk::PhysicalDevice GetPhysicalDevice() const
+	{
+		return std::get<0>(device);
+	}
+	inline vk::Device GetLogicalDevice() const
+	{
+		return std::get<1>(device);
+	}
+
+	gs_device(vulkan_instance *_instance, const vk::PhysicalDevice &physicalDevice);
 	~gs_device();
 };
 
 struct vulkan_instance {
-	vk::Instance instance;
-	std::vector<gs_device>
-		devices; /* REM: Doing opposite of previous implementations, as there might be future use-cases for multi-GPU support */
+	vk::Instance vulkanInstance;
 	std::vector<const char *> layers, extensions;
+	std::vector<std::unique_ptr<gs_device>> devices; /* REM: Doing opposite of previous implementations, as there might be future use-cases for multi-GPU support */
+	std::vector<std::unique_ptr<vulkan_surface>> surfaces;
 
 	vulkan_instance(std::vector<const char *> requestedLayers,
 			std::vector<const char *> requestedExtensions);
