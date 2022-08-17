@@ -165,9 +165,12 @@ static void AddExtraModulePaths()
 	}
 
 	char base_module_dir[512];
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32)
 	int ret = GetProgramDataPath(base_module_dir, sizeof(base_module_dir),
 				     "obs-studio/plugins/%module%");
+#elif defined(__APPLE__)
+	int ret = GetConfigPath(base_module_dir, sizeof(base_module_dir),
+				"obs-studio/plugins/%module%.plugin");
 #else
 	int ret = GetConfigPath(base_module_dir, sizeof(base_module_dir),
 				"obs-studio/plugins/%module%");
@@ -178,26 +181,28 @@ static void AddExtraModulePaths()
 
 	string path = base_module_dir;
 #if defined(__APPLE__)
-	/* System Library Search Path */
-	obs_add_module_path((path + ".plugin/Contents/MacOS").c_str(),
-			    (path + ".plugin/Contents/Resources").c_str());
-
 	/* User Application Support Search Path */
-	BPtr<char> config_bin = os_get_config_path_ptr(
-		"obs-studio/plugins/%module%.plugin/Contents/MacOS");
-	BPtr<char> config_data = os_get_config_path_ptr(
-		"obs-studio/plugins/%module%.plugin/Contents/Resources");
-	obs_add_module_path(config_bin, config_data);
+	obs_add_module_path((path + "/Contents/MacOS").c_str(),
+			    (path + "/Contents/Resources").c_str());
 
+#ifndef __aarch64__
 	/* Legacy System Library Search Path */
-	obs_add_module_path((path + "/bin").c_str(), (path + "/data").c_str());
+	char system_legacy_module_dir[PATH_MAX];
+	GetProgramDataPath(system_legacy_module_dir,
+			   sizeof(system_legacy_module_dir),
+			   "obs-studio/plugins/%module%");
+	std::string path_system_legacy = system_legacy_module_dir;
+	obs_add_module_path((path_system_legacy + "/bin").c_str(),
+			    (path_system_legacy + "/data").c_str());
 
 	/* Legacy User Application Support Search Path */
-	BPtr<char> config_bin_legacy =
-		os_get_config_path_ptr("obs-studio/plugins/%module%/bin");
-	BPtr<char> config_data_legacy =
-		os_get_config_path_ptr("obs-studio/plugins/%module%/data");
-	obs_add_module_path(config_bin_legacy, config_data_legacy);
+	char user_legacy_module_dir[PATH_MAX];
+	GetConfigPath(user_legacy_module_dir, sizeof(user_legacy_module_dir),
+		      "obs-studio/plugins/%module%");
+	std::string path_user_legacy = user_legacy_module_dir;
+	obs_add_module_path((path_user_legacy + "/bin").c_str(),
+			    (path_user_legacy + "/data").c_str());
+#endif
 #else
 #if ARCH_BITS == 64
 	obs_add_module_path((path + "/bin/64bit").c_str(),
@@ -2132,13 +2137,14 @@ void OBSBasic::OnFirstLoad()
 }
 
 #if defined(OBS_RELEASE_CANDIDATE) && OBS_RELEASE_CANDIDATE > 0
-#define CUR_VER OBS_RELEASE_CANDIDATE_VER
+#define CUR_VER \
+	((uint64_t)OBS_RELEASE_CANDIDATE_VER << 16ULL | OBS_RELEASE_CANDIDATE)
 #define LAST_INFO_VERSION_STRING "InfoLastRCVersion"
 #elif OBS_BETA > 0
-#define CUR_VER OBS_BETA_VER
+#define CUR_VER ((uint64_t)OBS_BETA_VER << 16ULL | OBS_BETA)
 #define LAST_INFO_VERSION_STRING "InfoLastBetaVersion"
 #else
-#define CUR_VER LIBOBS_API_VER
+#define CUR_VER ((uint64_t)LIBOBS_API_VER << 16ULL)
 #define LAST_INFO_VERSION_STRING "InfoLastVersion"
 #endif
 
@@ -2191,15 +2197,15 @@ void OBSBasic::ReceivedIntroJson(const QString &text)
 		return;
 	}
 
-	uint32_t lastVersion = config_get_int(App()->GlobalConfig(), "General",
-					      LAST_INFO_VERSION_STRING);
+	uint64_t lastVersion = config_get_uint(App()->GlobalConfig(), "General",
+					       LAST_INFO_VERSION_STRING);
 	int current_version_increment = -1;
 
-	if ((lastVersion & ~0xFFFF) < (CUR_VER & ~0xFFFF)) {
+	if ((lastVersion & ~0xFFFF0000ULL) < (CUR_VER & ~0xFFFF0000ULL)) {
 		config_set_int(App()->GlobalConfig(), "General",
 			       "InfoIncrement", -1);
-		config_set_int(App()->GlobalConfig(), "General",
-			       LAST_INFO_VERSION_STRING, CUR_VER);
+		config_set_uint(App()->GlobalConfig(), "General",
+				LAST_INFO_VERSION_STRING, CUR_VER);
 	} else {
 		current_version_increment = config_get_int(
 			App()->GlobalConfig(), "General", "InfoIncrement");
@@ -2213,14 +2219,6 @@ void OBSBasic::ReceivedIntroJson(const QString &text)
 		       info_increment);
 	config_save_safe(App()->GlobalConfig(), "tmp", nullptr);
 
-	/* Don't show What's New dialog for new users */
-#if !defined(OBS_RELEASE_CANDIDATE) || OBS_RELEASE_CANDIDATE == 0 || \
-	!defined(OBS_BETA) || OBS_BETA == 0
-
-	if (!lastVersion) {
-		return;
-	}
-#endif
 	cef->init_browser();
 
 	WhatsNewBrowserInitThread *wnbit =
@@ -3301,7 +3299,14 @@ void OBSBasic::HideAudioControl()
 
 	if (!SourceMixerHidden(source)) {
 		SetSourceMixerHidden(source, true);
-		DeactivateAudioSource(source);
+
+		/* Due to a bug with QT 6.2.4, the version that's in the Ubuntu
+		* 22.04 ppa, hiding the audio mixer causes a crash, so defer to
+		* the next event loop to hide it. Doesn't seem to be a problem
+		* with newer versions of QT. */
+		QMetaObject::invokeMethod(this, "DeactivateAudioSource",
+					  Qt::QueuedConnection,
+					  Q_ARG(OBSSource, OBSSource(source)));
 	}
 }
 

@@ -10,6 +10,7 @@ env:
 task:
   install_script:
   - pkg install -y
+    alsa-lib
     v4l_compat swig ffmpeg curl dbus fdk-aac fontconfig
     freetype2 jackit jansson luajit mbedtls pulseaudio speexdsp
     libpci librist libsysinfo libudev-devd libv4l libx264 cmake ninja
@@ -20,8 +21,6 @@ task:
   - mkdir build
   - cd build
   - cmake
-      -DUNIX_STRUCTURE=1
       -DENABLE_AJA=OFF
-      -DENABLE_ALSA=OFF
       -GNinja ..
   - ninja
