@@ -17,6 +17,7 @@ target_sources(
           vk-sampler.cpp
           vk-texture.cpp
           vk-stagesurf.cpp
+          vk-swapchain.cpp
           vk-shaderhandler.hpp
           vk-shaderhandler.cpp)
 

@@ -118,18 +118,25 @@ struct vulkan_image {
 };
 
 struct gs_swap_chain {
-	gs_init_data initData;
+	gs_device_t *device;
+	std::unique_ptr<gs_init_data> initData;
 	vk::Extent2D extent;
 	vk::SwapchainKHR swapchainKHR;
 	vk::Format format;
 	vk::ColorSpaceKHR colorSpaceKHR;
 	vk::PresentModeKHR presentModeKHR;
-	uint32_t imageCount;
+	uint32_t imageCount = 0, usedFamilyIndex = 0;
 	std::vector<vulkan_image> colorImages;
 	std::vector<vulkan_image> depthImages;
 	std::unique_ptr<vulkan_surface> surface;
 
-	// TODO: Constructor 'n destructor, recreation of swapchain
+	void Recreate(uint32_t cx, uint32_t cy);
+
+	gs_swap_chain(gs_device_t *_device, const gs_init_data *data,
+		      std::unique_ptr<vulkan_surface> _surface,
+		      uint32_t queueFamilyIndex);
+
+	~gs_swap_chain();
 };
 
 struct gs_stage_surface {
@@ -296,7 +303,6 @@ struct gs_device {
 
 	void CreateLogicalDevice();
 	void CreateRenderPasses();
-	void CreateSwapchainImageViews();
 	void CreateDescriptorSetLayout();
 	void CreatePipelineLayout();
 	void CreateCommandPool();
@@ -305,12 +311,14 @@ struct gs_device {
 	void CreateCommandBuffers();
 	void CreateSyncObjects();
 
+	void Resize(uint32_t cx, uint32_t cy);
+
+	gs_swap_chain *CreateSwapchain(const gs_init_data *data);
+
+	vk::ShaderModule CreateShaderModule(gs_shader *shader);
 	vk::Pipeline CreateGraphicsPipeline(vk::ShaderModule vertexShader,
 					    vk::ShaderModule fragmentShader);
 
-	vk::ShaderModule CreateShaderModule(gs_shader *shader);
-
-	gs_swap_chain *CreateSwapchain(const gs_init_data *data);
 	vk::CommandBuffer BeginCommandBuffer();
 	void EndCommandBuffer(const vk::CommandBuffer &commandBuffer);
 

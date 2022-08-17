@@ -173,20 +173,13 @@ gs_swapchain_t *device_swapchain_create(gs_device_t *device,
 	return swapchain;
 }
 
-static void device_resize_internal(gs_device_t *device, uint32_t cx,
-				   uint32_t cy, gs_color_space space)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(cx);
-	UNUSED_PARAMETER(cy);
-	UNUSED_PARAMETER(space);
-}
-
 void device_resize(gs_device_t *device, uint32_t cx, uint32_t cy)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(cx);
-	UNUSED_PARAMETER(cy);
+	try {
+		device->Resize(cx, cy);
+	} catch (const std::runtime_error &e) {
+		blog(LOG_ERROR, "%s: device_resize (Vulkan): %s", device->deviceName.c_str(), e.what());
+	}
 }
 
 enum gs_color_space device_get_color_space(gs_device_t *device)
@@ -772,7 +765,8 @@ void device_projection_pop(gs_device_t *device)
 
 void gs_swapchain_destroy(gs_swapchain_t *swapchain)
 {
-	UNUSED_PARAMETER(swapchain);
+	if (swapchain->device->currentSwapchain.get() == swapchain)
+		swapchain->device->currentSwapchain = nullptr;
 }
 
 void gs_texture_destroy(gs_texture_t *tex)

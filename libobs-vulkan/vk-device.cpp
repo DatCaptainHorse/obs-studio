@@ -107,161 +107,24 @@ void gs_device::CreateLogicalDevice()
 gs_swap_chain *gs_device::CreateSwapchain(const gs_init_data *data)
 {
 	if (currentSwapchain) {
-		blog(LOG_ERROR, "%s: Swapchain already exists", deviceName.c_str());
+		blog(LOG_ERROR, "%s: Swapchain already exists",
+		     deviceName.c_str());
 		return nullptr;
 	}
 
-	currentSwapchain = std::make_unique<gs_swap_chain>();
-
 	try {
-		currentSwapchain->surface = std::make_unique<vulkan_surface>(instance, data);
-	} catch (const vk::Error &error) {
-		blog(LOG_ERROR, "%s: Failed to create surface: %s",
-			 deviceName.c_str(), error.what());
+		currentSwapchain = std::make_unique<gs_swap_chain>(
+			this, data,
+			std::make_unique<vulkan_surface>(instance, data),
+			queueFamilyIndex);
+	} catch (const std::runtime_error &error) {
+		blog(LOG_ERROR, "%s: Failed to create swapchain: %s",
+		     deviceName.c_str(), error.what());
 		return nullptr;
-	}
-
-	const auto physicalDevice = GetPhysicalDevice();
-	const auto logicalDevice = GetLogicalDevice();
-
-	const auto surfaceCapabilities =
-		physicalDevice.getSurfaceCapabilitiesKHR(currentSwapchain->surface->surfaceKHR);
-
-	if (surfaceCapabilities.currentExtent.width ==
-		    std::numeric_limits<uint32_t>::max() ||
-	    surfaceCapabilities.currentExtent.height ==
-		    std::numeric_limits<uint32_t>::max()) {
-		currentSwapchain->extent.width = std::max(
-			surfaceCapabilities.minImageExtent.width,
-			std::min(surfaceCapabilities.maxImageExtent.width,
-				 data->cx));
-
-		currentSwapchain->extent.height = std::max(
-			surfaceCapabilities.minImageExtent.height,
-			std::min(surfaceCapabilities.maxImageExtent.height,
-				 data->cy));
-	} else
-		currentSwapchain->extent = surfaceCapabilities.currentExtent;
-
-	const auto surfaceFormats =
-		physicalDevice.getSurfaceFormatsKHR(currentSwapchain->surface->surfaceKHR);
-
-	if (surfaceFormats.empty())
-		throw std::runtime_error("Could not get surface formats");
-
-	/* TODO: Get wanted color space */
-	if (surfaceFormats.size() == 1 &&
-	    surfaceFormats[0].format == vk::Format::eUndefined) {
-		currentSwapchain->format = vk::Format::eB8G8R8A8Unorm;
-		currentSwapchain->colorSpaceKHR = vk::ColorSpaceKHR ::eSrgbNonlinear;
-	} else {
-		for (const auto &surfaceFormat : surfaceFormats) {
-			if (surfaceFormat.format ==
-			    vk::Format::eB8G8R8A8Unorm) {
-				currentSwapchain->format = surfaceFormat.format;
-				currentSwapchain->colorSpaceKHR =
-					surfaceFormat.colorSpace;
-				break;
-			}
-		}
-	}
-
-	/* present mode, mailbox is preferred */
-	const auto presentModes =
-		physicalDevice.getSurfacePresentModesKHR(currentSwapchain->surface->surfaceKHR);
-
-	for (const auto &presentMode : presentModes) {
-		if (presentMode == vk::PresentModeKHR::eMailbox) {
-			currentSwapchain->presentModeKHR = presentMode;
-			break;
-		} else if (presentMode == vk::PresentModeKHR::eFifo) {
-			currentSwapchain->presentModeKHR = presentMode;
-		}
-	}
-
-	const auto preTransform =
-		(surfaceCapabilities.supportedTransforms &
-		 vk::SurfaceTransformFlagBitsKHR::eIdentity)
-			? vk::SurfaceTransformFlagBitsKHR::eIdentity
-			: surfaceCapabilities.currentTransform;
-
-	const auto compositeAlpha =
-		(surfaceCapabilities.supportedCompositeAlpha &
-		 vk::CompositeAlphaFlagBitsKHR::ePreMultiplied)
-			? vk::CompositeAlphaFlagBitsKHR::ePreMultiplied
-		: (surfaceCapabilities.supportedCompositeAlpha &
-		   vk::CompositeAlphaFlagBitsKHR::ePostMultiplied)
-			? vk::CompositeAlphaFlagBitsKHR::ePostMultiplied
-		: (surfaceCapabilities.supportedCompositeAlpha &
-		   vk::CompositeAlphaFlagBitsKHR::eInherit)
-			? vk::CompositeAlphaFlagBitsKHR::eInherit
-			: vk::CompositeAlphaFlagBitsKHR::eOpaque;
-
-	if (!(surfaceCapabilities.supportedUsageFlags &
-	      vk::ImageUsageFlagBits::eTransferDst))
-		throw std::runtime_error(
-			"Swapchain eTransferDst not supported");
-
-	uint32_t queueFamilyIndices[] = {queueFamilyIndex};
-
-	currentSwapchain->imageCount = surfaceCapabilities.minImageCount;
-
-	const auto swapchainCreateInfo = vk::SwapchainCreateInfoKHR(
-		{}, currentSwapchain->surface->surfaceKHR, currentSwapchain->imageCount,
-		currentSwapchain->format, currentSwapchain->colorSpaceKHR,
-		currentSwapchain->extent,
-		1,
-		vk::ImageUsageFlagBits::eColorAttachment |
-			vk::ImageUsageFlagBits::eTransferDst,
-		vk::SharingMode::eExclusive, 1, queueFamilyIndices,
-		preTransform, compositeAlpha, currentSwapchain->presentModeKHR, true,
-		nullptr);
-
-	try {
-		currentSwapchain->swapchainKHR =
-			logicalDevice.createSwapchainKHR(swapchainCreateInfo);
-	} catch (const vk::Error &error) {
-		throw std::runtime_error(error.what());
-	}
-
-	const auto images =
-		logicalDevice.getSwapchainImagesKHR(
-		currentSwapchain->swapchainKHR);
-
-	for (const auto &image : images)
-		currentSwapchain->colorImages.emplace_back(image);
-
-	/* depth resources */
-	for (uint32_t i = 0; i < images.size(); i++) {
-		const auto depthFormat = FindSupportedFormat(
-			{vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint,
-			 vk::Format::eD24UnormS8Uint},
-			vk::ImageTiling::eOptimal,
-			vk::FormatFeatureFlagBits::eDepthStencilAttachment);
-
-		auto depthImage = CreateImage(
-			currentSwapchain->extent.width,
-			currentSwapchain->extent.height, depthFormat,
-			vk::ImageTiling::eOptimal,
-			vk::ImageUsageFlagBits::eDepthStencilAttachment,
-			vk::MemoryPropertyFlagBits::eDeviceLocal);
-
-		depthImage.imageView = CreateImageView(
-			depthImage.image, vk::ImageViewType::e2D, depthFormat,
-			vk::ImageAspectFlagBits::eDepth);
-
-		vk_transitionImageLayout(
-			this, depthImage.image, depthFormat,
-			vk::ImageLayout::eUndefined,
-			vk::ImageLayout::eDepthStencilAttachmentOptimal);
-
-		currentSwapchain->depthImages.emplace_back(depthImage);
 	}
 
 	blog(LOG_INFO, "%s: CreateRenderPasses", deviceName.c_str());
 	CreateRenderPasses();
-	blog(LOG_INFO, "%s: CreateSwapchainImageViews", deviceName.c_str());
-	CreateSwapchainImageViews();
 	blog(LOG_INFO, "%s: CreateFramebuffers", deviceName.c_str());
 	CreateFramebuffers();
 	blog(LOG_INFO, "%s: CreateCommandBuffers", deviceName.c_str());
@@ -327,21 +190,6 @@ void gs_device::CreateRenderPasses()
 			logicalDevice.createRenderPass(renderPassCreateInfo);
 	} catch (const vk::Error &error) {
 		throw std::runtime_error(error.what());
-	}
-}
-
-void gs_device::CreateSwapchainImageViews()
-{
-	const auto logicalDevice = GetLogicalDevice();
-
-	for (auto &colorImage : currentSwapchain->colorImages) {
-		try {
-			colorImage.imageView = CreateImageView(
-				colorImage.image, vk::ImageViewType::e2D, currentSwapchain->format,
-				vk::ImageAspectFlagBits::eColor);
-		} catch (const vk::Error &error) {
-			throw std::runtime_error(error.what());
-		}
 	}
 }
 
@@ -512,6 +360,28 @@ void gs_device::CreateSyncObjects()
 	for (uint32_t i = 0; i < currentSwapchain->imageCount; i++)
 		inFlightFences.emplace_back(
 			logicalDevice.createFence(fenceCreateInfo));
+}
+
+void gs_device::Resize(uint32_t cx, uint32_t cy)
+{
+	const auto logicalDevice = GetLogicalDevice();
+
+	logicalDevice.waitIdle();
+
+	for (const auto &framebuffer : framebuffers)
+		logicalDevice.destroyFramebuffer(framebuffer);
+
+	framebuffers.clear();
+
+	logicalDevice.freeCommandBuffers(commandPool, commandBuffers);
+	commandBuffers.clear();
+
+	currentSwapchain->Recreate(cx, cy);
+	logicalDevice.destroyDescriptorPool(descriptorPool);
+
+	CreateFramebuffers();
+	CreateDescriptorPool();
+	CreateCommandBuffers();
 }
 
 vk::Pipeline gs_device::CreateGraphicsPipeline(vk::ShaderModule vertexShader,
