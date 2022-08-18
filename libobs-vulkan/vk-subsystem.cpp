@@ -28,17 +28,20 @@ static inline void LogVulkanDevices()
 
 	uint32_t i = 0;
 	for (const auto physicalDevice : instance.enumeratePhysicalDevices()) {
-		const auto properties = physicalDevice.getProperties();
+		vk::PhysicalDeviceProperties2 properties;
+		vk::PhysicalDeviceDriverProperties driverProperties;
+		properties.pNext = &driverProperties;
+		physicalDevice.getProperties2(&properties);
 		const auto memoryProperties =
 			physicalDevice.getMemoryProperties();
 
-		blog(LOG_INFO, "\tDevice %u: %s", i, properties.deviceName);
+		blog(LOG_INFO, "\tDevice %u: %s", i,
+		     properties.properties.deviceName);
 
 		/* device dedicated and shared vram */
 		for (uint32_t j = 0; j < memoryProperties.memoryHeapCount;
 		     j++) {
-			const auto memoryHeap =
-				memoryProperties.memoryHeaps[j];
+			const auto memoryHeap = memoryProperties.memoryHeaps[j];
 
 			if (memoryHeap.flags &
 			    vk::MemoryHeapFlagBits::eDeviceLocal) {
@@ -52,23 +55,33 @@ static inline void LogVulkanDevices()
 
 		/* device vulkan version */
 		blog(LOG_INFO, "\t  Vulkan Version: %u.%u.%u",
-		     properties.apiVersion >> 22,
-		     (properties.apiVersion >> 12) & 0x3ff,
-		     properties.apiVersion & 0xfff);
+		     properties.properties.apiVersion >> 22,
+		     (properties.properties.apiVersion >> 12) & 0x3ff,
+		     properties.properties.apiVersion & 0xfff);
 
 		/* device information */
-		blog(LOG_INFO, "\t  VendorID: %u", properties.vendorID);
+		blog(LOG_INFO, "\t  VendorID: %u",
+		     properties.properties.vendorID);
 		blog(LOG_INFO, "\t  Vendor: %s",
-		     GetVulkanVendor(properties.vendorID));
+		     GetVulkanVendor(properties.properties.vendorID));
 
-		blog(LOG_INFO, "\t  DeviceID: %u", properties.deviceID);
+		blog(LOG_INFO, "\t  DeviceID: %u",
+		     properties.properties.deviceID);
 		blog(LOG_INFO, "\t  Device Type: %s",
-		     GetVulkanDeviceType(properties.deviceType));
+		     GetVulkanDeviceType(properties.properties.deviceType));
 
-		/* driver version */
+		/* driver information */
+		blog(LOG_INFO, "\t  DriverID: %u",
+		     GetVulkanDriverID(driverProperties.driverID));
+
+		blog(LOG_INFO, "\t  Driver: %s", driverProperties.driverName);
 		blog(LOG_INFO, "\t  Driver Version: %s",
-		     GetVulkanDriverVersion(properties.driverVersion,
-					    properties.vendorID));
+		     driverProperties.driverInfo);
+
+		const auto conformance = driverProperties.conformanceVersion;
+		blog(LOG_INFO, "\t  Driver Conformance: %u.%u.%u.%u",
+		     conformance.major, conformance.minor, conformance.subminor,
+		     conformance.patch);
 
 		i++;
 	}

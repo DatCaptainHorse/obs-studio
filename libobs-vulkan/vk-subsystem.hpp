@@ -57,6 +57,59 @@ static inline const char *GetVulkanVendor(std::uint32_t vendorID)
 	}
 }
 
+/* Returns given vk::DriverId back as a nice const char *
+ * REM: Most of these will probably never see OBS,
+ * however it's nice to have them? */
+static inline const char *GetVulkanDriverID(vk::DriverId driverID)
+{
+	switch (driverID) {
+	case vk::DriverId::eAmdProprietary:
+		return "AMD Proprietary";
+	case vk::DriverId::eAmdOpenSource:
+		return "AMD Open Source";
+	case vk::DriverId::eMesaRadv:
+		return "Mesa RADV";
+	case vk::DriverId::eNvidiaProprietary:
+		return "NVIDIA Proprietary";
+	case vk::DriverId::eIntelProprietaryWindows:
+		return "Intel Proprietary Windows";
+	case vk::DriverId::eIntelOpenSourceMESA:
+		return "Intel Open Source Mesa";
+	case vk::DriverId::eImaginationProprietary:
+		return "Imagination Proprietary";
+	case vk::DriverId::eQualcommProprietary:
+		return "Qualcomm Proprietary";
+	case vk::DriverId::eArmProprietary:
+		return "ARM Proprietary";
+	case vk::DriverId::eGoogleSwiftshader:
+		return "Google SwiftShader";
+	case vk::DriverId::eGgpProprietary:
+		return "GGP Proprietary";
+	case vk::DriverId::eBroadcomProprietary:
+		return "Broadcom Proprietary";
+	case vk::DriverId::eMesaLlvmpipe:
+		return "Mesa LLVMpipe";
+	case vk::DriverId::eMoltenvk:
+		return "MoltenVK";
+	case vk::DriverId::eJuiceProprietary:
+		return "Juice Proprietary";
+	case vk::DriverId::eVerisiliconProprietary:
+		return "VeriSilicon Proprietary";
+	case vk::DriverId::eMesaTurnip:
+		return "Mesa Turnip";
+	case vk::DriverId::eMesaV3Dv:
+		return "Mesa v3dv";
+	case vk::DriverId::eMesaPanvk:
+		return "Mesa PanVK";
+	case vk::DriverId::eSamsungProprietary:
+		return "Samsung Proprietary";
+	case vk::DriverId::eMesaVenus:
+		return "Mesa Venus";
+	default:
+		return "Unknown";
+	}
+}
+
 static inline const char *GetVulkanDeviceType(vk::PhysicalDeviceType type)
 {
 	switch (type) {
@@ -73,30 +126,6 @@ static inline const char *GetVulkanDeviceType(vk::PhysicalDeviceType type)
 	default:
 		return "Unknown";
 	}
-}
-
-static inline const char *GetVulkanDriverVersion(uint32_t driverVersion,
-						 uint32_t vendorID)
-{
-	char *version = new char[32];
-	switch (vendorID) {
-	case 4318:
-		std::snprintf(version, 32, "%u.%u.%u.%u",
-			      (driverVersion >> 22) & 0x3ff,
-			      (driverVersion >> 14) & 0x0ff,
-			      (driverVersion >> 6) & 0x0ff,
-			      driverVersion & 0x003f);
-#ifdef _WIN32
-	case 32902:
-		std::snprintf(version, 32, "%u.%u", driverVersion >> 14,
-			      driverVersion & 0x3fff);
-#endif
-	default:
-		std::snprintf(version, 32, "%u.%u.%u", driverVersion >> 22,
-			      (driverVersion >> 12) & 0x3ff,
-			      driverVersion & 0xfff);
-	}
-	return version;
 }
 
 struct vulkan_surface {
