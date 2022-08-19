@@ -18,7 +18,7 @@
 #include "vk-subsystem.hpp"
 
 /* General Vulkan instance */
-inline vulkan_instance *sharedInstance = nullptr;
+inline std::unique_ptr<vulkan_instance> sharedInstance = nullptr;
 
 static inline void LogVulkanDevices()
 {
@@ -102,17 +102,20 @@ static inline int InitializeInstance()
 	blog(LOG_INFO, "---------------------------------");
 	blog(LOG_INFO, "Initializing Vulkan...");
 	try {
-		sharedInstance = new vulkan_instance(
-			{
+		/* make_unique doesn't support initializer lists,
+		 * so doing it this way */
+		sharedInstance =
+			std::unique_ptr<vulkan_instance>(new vulkan_instance(
+				{
 #ifdef _DEBUG
-				"VK_LAYER_KHRONOS_validation"
+					"VK_LAYER_KHRONOS_validation"
 #endif
-			},
-			{
+				},
+				{
 #ifdef VK_USE_PLATFORM_WIN32_KHR
-				VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+					VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
-				VK_KHR_SURFACE_EXTENSION_NAME});
+					VK_KHR_SURFACE_EXTENSION_NAME}));
 	} catch (const std::runtime_error &e) {
 		blog(LOG_ERROR, "InitializeInstance: %s", e.what());
 		return GS_ERROR_FAIL;
@@ -147,7 +150,7 @@ int device_create(gs_device_t **p_device, uint32_t adapter)
 
 	try {
 		sharedInstance->devices.emplace_back(
-			std::make_unique<gs_device>(sharedInstance,
+			std::make_unique<gs_device>(sharedInstance.get(),
 						    GetVulkanDevice(adapter)));
 	} catch (const std::runtime_error &e) {
 		blog(LOG_ERROR, "device_create (Vulkan): %s", e.what());
@@ -160,7 +163,14 @@ int device_create(gs_device_t **p_device, uint32_t adapter)
 
 void device_destroy(gs_device_t *device)
 {
-	delete device;
+	device->GetLogicalDevice().waitIdle();
+	for (auto it = sharedInstance->devices.begin();
+	     it != sharedInstance->devices.end(); ++it) {
+		if (it->get() == device) {
+			sharedInstance->devices.erase(it);
+			return;
+		}
+	}
 }
 
 void *device_get_device_obj(gs_device_t *device)
@@ -784,7 +794,7 @@ void gs_swapchain_destroy(gs_swapchain_t *swapchain)
 
 void gs_texture_destroy(gs_texture_t *tex)
 {
-	UNUSED_PARAMETER(tex);
+	delete tex;
 }
 
 uint32_t gs_texture_get_width(const gs_texture_t *tex)
@@ -873,7 +883,7 @@ enum gs_color_format gs_voltexture_get_color_format(const gs_texture_t *voltex)
 
 void gs_stagesurface_destroy(gs_stagesurf_t *stagesurf)
 {
-	UNUSED_PARAMETER(stagesurf);
+	delete stagesurf;
 }
 
 uint32_t gs_stagesurface_get_width(const gs_stagesurf_t *stagesurf)
@@ -916,12 +926,12 @@ void gs_zstencil_destroy(gs_zstencil_t *zstencil)
 
 void gs_samplerstate_destroy(gs_samplerstate_t *samplerstate)
 {
-	UNUSED_PARAMETER(samplerstate);
+	delete samplerstate;
 }
 
 void gs_vertexbuffer_destroy(gs_vertbuffer_t *vertbuffer)
 {
-	UNUSED_PARAMETER(vertbuffer);
+	delete vertbuffer;
 }
 
 static inline void gs_vertexbuffer_flush_internal(gs_vertbuffer_t *vertbuffer,
@@ -945,7 +955,7 @@ void gs_vertexbuffer_flush_direct(gs_vertbuffer_t *vertbuffer,
 
 void gs_indexbuffer_destroy(gs_indexbuffer_t *indexbuffer)
 {
-	UNUSED_PARAMETER(indexbuffer);
+	delete indexbuffer;
 }
 
 static inline void gs_indexbuffer_flush_internal(gs_indexbuffer_t *indexbuffer,

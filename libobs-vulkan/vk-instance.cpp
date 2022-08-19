@@ -61,5 +61,7 @@ vulkan_instance::vulkan_instance(std::vector<const char *> requestedLayers,
 
 vulkan_instance::~vulkan_instance()
 {
+	devices.clear();
+	surfaces.clear();
 	vulkanInstance.destroy();
 }

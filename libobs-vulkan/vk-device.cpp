@@ -665,5 +665,24 @@ gs_device::gs_device(vulkan_instance *_instance, const vk::PhysicalDevice &physi
 
 gs_device::~gs_device()
 {
-	/* TODO: This */
+	const auto logicalDevice = GetLogicalDevice();
+
+	logicalDevice.waitIdle();
+	for (const auto &framebuffer : framebuffers)
+		logicalDevice.destroyFramebuffer(framebuffer);
+
+	logicalDevice.freeCommandBuffers(commandPool, commandBuffers);
+	currentSwapchain = nullptr;
+	logicalDevice.destroyDescriptorPool(descriptorPool);
+	logicalDevice.destroyPipelineLayout(pipelineLayout);
+	logicalDevice.destroyRenderPass(renderPass);
+	logicalDevice.destroySemaphore(imageAvailableSemaphore);
+	logicalDevice.destroySemaphore(renderFinishedSemaphore);
+	for (const auto &fences : inFlightFences)
+		logicalDevice.destroyFence(fences);
+
+	inFlightFences.clear();
+
+	logicalDevice.destroyCommandPool(commandPool);
+	logicalDevice.destroyDescriptorSetLayout(descriptorSetLayout);
 }

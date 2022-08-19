@@ -19,6 +19,9 @@
 #include "vk-shaderhandler.hpp"
 
 #include <string>
+#include <fstream>
+#include <functional>
+#include <filesystem>
 
 #include <graphics/vec2.h>
 #include <graphics/vec3.h>
@@ -89,6 +92,127 @@ void gs_shader::BuildConstantBuffer()
 		gs_shader_set_default(&params[i]);
 }
 
+std::filesystem::path GetCachePath(const std::string &file)
+{
+	std::filesystem::path path = std::filesystem::current_path();
+	path /= "_shaderCache";
+	if (!std::filesystem::exists(path))
+		std::filesystem::create_directories(path);
+
+	path /= file;
+	return path;
+}
+
+void CreateSPIRVFile(const std::string &file, std::vector<uint32_t> spirv)
+{
+	std::ofstream spvFile(GetCachePath(file + ".spv").string(),
+			      std::ios::out | std::ios::binary);
+
+	if (spvFile.is_open()) {
+		spvFile.write(
+			reinterpret_cast<const char *>(
+				spirv.data()),
+			spirv.size() * sizeof(uint32_t));
+
+		spvFile.close();
+	}
+}
+
+std::vector<uint32_t> ReadSPIRVFile(const std::string &file)
+{
+	std::vector<uint32_t> spirv;
+	std::ifstream spvFile(GetCachePath(file + ".spv").string(),
+			      std::ios::in | std::ios::binary);
+
+	if (spvFile.is_open()) {
+		spirv.resize(std::filesystem::file_size(GetCachePath(file + ".spv")) / sizeof(uint32_t));
+		spvFile.read(
+			reinterpret_cast<char *>(
+				spirv.data()),
+			spirv.size() * sizeof(uint32_t));
+
+		spvFile.close();
+	}
+	return spirv;
+}
+
+void UpdateCache(const std::string &file, std::size_t hash, std::vector<uint32_t> spirv)
+{
+	std::fstream cache(GetCachePath("hashes.txt").string(), std::ios::in | std::ios::out | std::ios::app);
+	cache.seekg(0, std::ios::beg);
+	if (cache.is_open()) {
+		std::string line;
+		bool found = false;
+		while (std::getline(cache, line)) {
+			if (line.find(file) != std::string::npos) {
+				found = true;
+				cache << file << "\t" << hash << std::endl;
+				/* replace old .spv file */
+				CreateSPIRVFile(file, spirv);
+				break;
+			}
+		}
+
+		if (!found) {
+			cache.clear();
+			cache << file << "\t" << hash << std::endl;
+			/* add new .spv file */
+			CreateSPIRVFile(file, spirv);
+		}
+	}
+}
+
+std::size_t CreateHash(const std::string &contents)
+{
+	std::hash<std::string> hasher;
+	return hasher(contents);
+}
+
+std::size_t GetCachedHash(const std::string &file)
+{
+	std::ifstream cache(GetCachePath("hashes.txt").string());
+	std::string line;
+	while (std::getline(cache, line)) {
+		std::stringstream ss(line);
+		std::string name;
+		std::string hash;
+		std::getline(ss, name, '\t');
+		std::getline(ss, hash);
+		if (name == file)
+			return std::stoull(hash);
+	}
+	return {};
+}
+
+std::string GetStringBetween(const std::string &str, const std::string &start, const std::string &end)
+{
+	std::size_t start_pos = str.find_last_of(start);
+	if (start_pos == std::string::npos)
+		return "";
+
+	start_pos += start.length();
+	std::size_t end_pos = str.find(end, start_pos);
+	if (end_pos == std::string::npos)
+		return "";
+
+	return str.substr(start_pos, end_pos - start_pos);
+}
+
+std::string ProcessString(const std::string &str)
+{
+	std::stringstream ss;
+	for (char c : str) {
+		if (std::isspace(c)) {
+			ss << '_';
+			continue;
+		} else if (c == '(' || c == ',')
+			continue;
+
+		ss << c;
+	}
+	return ss.str();
+}
+
 gs_shader::gs_shader(gs_device_t *device, gs_shader_type type, const char *source, const char *file)
 	: device(device), type(type), constantSize(0)
 {
@@ -101,40 +225,70 @@ gs_shader::gs_shader(gs_device_t *device, gs_shader_type type, const char *sourc
 	processor.BuildParams(params);
 	BuildConstantBuffer();
 
-	/* SPIR-V compilation */
-	blog(LOG_INFO, "Compiling Shader to SPIR-V: %s", file);
+	/* SPIR-V compilation and caching */
+	/* look for identical shader in cache */
+	auto strFile = GetStringBetween(file, "/", ")");
+	strFile = ProcessString(strFile);
+	std::size_t hash = GetCachedHash(strFile);
+	bool isCached = false;
+	if (hash) {
+		const auto comp = CreateHash(source);
+		if (comp == hash)
+			isCached = true;
+	}
 
-	shaderc::Compiler compiler;
-	shaderc::CompileOptions options;
+	if (!isCached) {
+		/* shader not cached, compile and cache */
+		blog(LOG_INFO, "Compiling Shader to SPIR-V: %s", file);
 
-	options.SetTargetEnvironment(shaderc_target_env_vulkan,
-				     shaderc_env_version_vulkan_1_2);
-	options.SetOptimizationLevel(shaderc_optimization_level_performance);
-	options.SetSourceLanguage(shaderc_source_language_hlsl);
-	options.SetTargetSpirv(shaderc_spirv_version_1_4);
+		shaderc::Compiler compiler;
+		shaderc::CompileOptions options;
 
-	if (type == GS_SHADER_VERTEX) {
-		const auto compiled = compiler.CompileGlslToSpv(
-			hlslSource.c_str(), hlslSource.size(),
-			shaderc_glsl_vertex_shader, file, options);
+		options.SetTargetEnvironment(shaderc_target_env_vulkan,
+					     shaderc_env_version_vulkan_1_2);
 
-		if (compiled.GetCompilationStatus() !=
-		    shaderc_compilation_status_success)
-			throw std::runtime_error((compiled.GetErrorMessage() + std::string("\n\n\n") + hlslSource + std::string("\n\n\n")));
+		options.SetOptimizationLevel(
+			shaderc_optimization_level_performance);
 
-		spirv = {compiled.cbegin(), compiled.cend()};
-	} else if (type == GS_SHADER_PIXEL) {
-		const auto compiled = compiler.CompileGlslToSpv(
-			hlslSource.c_str(), hlslSource.size(),
-			shaderc_glsl_fragment_shader, file, options);
+		options.SetSourceLanguage(shaderc_source_language_hlsl);
+		options.SetTargetSpirv(shaderc_spirv_version_1_5);
 
-		if (compiled.GetCompilationStatus() !=
-		    shaderc_compilation_status_success)
-			throw std::runtime_error((compiled.GetErrorMessage() + std::string("\n\n\n") + hlslSource + std::string("\n\n\n")));
+		if (type == GS_SHADER_VERTEX) {
+			const auto compiled = compiler.CompileGlslToSpv(
+				hlslSource.c_str(), hlslSource.size(),
+				shaderc_glsl_vertex_shader, file, options);
 
-		spirv = {compiled.cbegin(), compiled.cend()};
-	} else
-		throw std::runtime_error("Invalid Shader type");
+			if (compiled.GetCompilationStatus() !=
+			    shaderc_compilation_status_success)
+				throw std::runtime_error(
+					(compiled.GetErrorMessage() +
+					 std::string("\n\n\n") + hlslSource +
+					 std::string("\n\n\n")));
+
+			spirv = {compiled.cbegin(), compiled.cend()};
+		} else if (type == GS_SHADER_PIXEL) {
+			const auto compiled = compiler.CompileGlslToSpv(
+				hlslSource.c_str(), hlslSource.size(),
+				shaderc_glsl_fragment_shader, file, options);
+
+			if (compiled.GetCompilationStatus() !=
+			    shaderc_compilation_status_success)
+				throw std::runtime_error(
+					(compiled.GetErrorMessage() +
+					 std::string("\n\n\n") + hlslSource +
+					 std::string("\n\n\n")));
+
+			spirv = {compiled.cbegin(), compiled.cend()};
+		} else
+			throw std::runtime_error("Invalid Shader type");
+
+		/* cache the shader */
+		const auto hsh = CreateHash(source);
+		UpdateCache(strFile, hsh, spirv);
+	} else {
+		/* shader is cached, load from cache */
+		spirv = ReadSPIRVFile(strFile);
+	}
 }
 
 gs_shader::~gs_shader() {}
