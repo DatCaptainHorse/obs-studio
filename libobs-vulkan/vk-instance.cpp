@@ -17,17 +17,84 @@
 
 #include "vk-subsystem.hpp"
 
+#include <obs-config.h>
+
+#include <iostream>
+
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
+
+VKAPI_ATTR VkBool32 VKAPI_CALL
+debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+	      VkDebugUtilsMessageTypeFlagsEXT messageType,
+	      const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+	      void *pUserData)
+{
+
+	std::string severity;
+	switch (messageSeverity) {
+	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+		severity = "VERBOSE";
+		break;
+	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+		severity = "INFO";
+		break;
+	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+		severity = "WARNING";
+		break;
+	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+		severity = "ERROR";
+		break;
+	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT:
+		severity = "UNKNOWN";
+		break;
+	}
+
+	std::string type;
+	switch (messageType) {
+	case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
+		type = "GENERAL";
+		break;
+	case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
+		type = "VALIDATION";
+		break;
+	case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
+		type = "PERFORMANCE";
+		break;
+	case VK_DEBUG_UTILS_MESSAGE_TYPE_FLAG_BITS_MAX_ENUM_EXT:
+		type = "UNKNOWN";
+		break;
+	}
+
+	bool isError = false;
+	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+		isError = true;
+
+	std::cout << "Vulkan [" << type << "::" << severity << "] "
+		  << pCallbackData->pMessage << std::endl;
+
+	blog(isError ? LOG_ERROR : LOG_INFO, "Vulkan [%s::%s]: %s",
+	     type.c_str(), severity.c_str(), pCallbackData->pMessage);
+
+	return false;
+}
+
 vulkan_instance::vulkan_instance(std::vector<const char *> requestedLayers,
 				 std::vector<const char *> requestedExtensions)
 {
-	/* TODO: Hardcoded versions for now */
+	if (volkInitialize() != VK_SUCCESS)
+		throw std::runtime_error("Failed to initialize volk");
+
+	const vk::DynamicLoader dl;
+	const PFN_vkGetInstanceProcAddr vkGetInstanceProcAddress = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddress);
+
+	/* TODO: Hardcoded version for now */
 	vk::ApplicationInfo applicationInfo(
 		"OBS-Studio",
-		VK_MAKE_API_VERSION(0, 28, 0, 0),
-		"libobs-vulkan",
-		VK_MAKE_API_VERSION(0, 1, 0, 0),
-		VK_API_VERSION_1_2
-	);
+		VK_MAKE_API_VERSION(0, LIBOBS_API_MAJOR_VER,
+				    LIBOBS_API_MINOR_VER, LIBOBS_API_PATCH_VER),
+		"libobs-vulkan", VK_MAKE_API_VERSION(0, 1, 0, 0),
+		VK_API_VERSION_1_2);
 
 	vk::InstanceCreateInfo instanceCreateInfo(
 		{},
@@ -57,11 +124,29 @@ vulkan_instance::vulkan_instance(std::vector<const char *> requestedLayers,
 	} catch (const vk::SystemError &e) {
 		throw std::runtime_error(e.what());
 	}
+
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(vulkanInstance);
+
+#if _DEBUG
+	debugMessenger = vulkanInstance.createDebugUtilsMessengerEXT(
+		vk::DebugUtilsMessengerCreateInfoEXT(
+			{},
+			vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+			vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
+			vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
+			vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance,
+			&debugCallback
+		)
+	);
+#endif
 }
 
 vulkan_instance::~vulkan_instance()
 {
 	devices.clear();
 	surfaces.clear();
+	if (debugMessenger)
+		vulkanInstance.destroyDebugUtilsMessengerEXT(debugMessenger);
+
 	vulkanInstance.destroy();
 }

@@ -15,17 +15,19 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
 
-#pragma once
+#include "vk-subsystem.hpp"
 
-/* TODO: Other platforms */
-#define VK_USE_PLATFORM_WIN32_KHR
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#undef near
-#undef far
+VulkanRenderable::VulkanRenderable(gs_device_t *_device, VulkanShader *_shader, gs_vertex_buffer *_vertexBuffer, gs_index_buffer *_indexBuffer)
+	: vk_object(_device, vk_type::VK_RENDERABLE),
+	  shader(_shader),
+	  vertexBuffer(_vertexBuffer),
+	  indexBuffer(_indexBuffer)
+{
+}
 
-#include <volk.h>
-
-#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
-#include <vulkan/vulkan.hpp>
+VulkanRenderable::~VulkanRenderable()
+{
+	const auto logicalDevice = device->GetLogicalDevice();
+	if (!descriptorSets.empty())
+		logicalDevice.freeDescriptorSets(device->descriptorPool, descriptorSets);
+}

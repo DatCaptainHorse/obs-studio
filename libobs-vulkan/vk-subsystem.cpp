@@ -16,6 +16,7 @@
 ******************************************************************************/
 
 #include "vk-subsystem.hpp"
+#include "vk-helpers.hpp"
 
 /* General Vulkan instance */
 inline std::unique_ptr<vulkan_instance> sharedInstance = nullptr;
@@ -115,6 +116,9 @@ static inline int InitializeInstance()
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 					VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
+#ifdef _DEBUG
+					VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+#endif
 					VK_KHR_SURFACE_EXTENSION_NAME}));
 	} catch (const std::runtime_error &e) {
 		blog(LOG_ERROR, "InitializeInstance: %s", e.what());
@@ -179,23 +183,6 @@ void *device_get_device_obj(gs_device_t *device)
 	return nullptr;
 }
 
-gs_swapchain_t *device_swapchain_create(gs_device_t *device,
-					const struct gs_init_data *data)
-{
-	gs_swap_chain *swapchain = nullptr;
-
-	try {
-		swapchain =
-			static_cast<gs_device *>(device)->CreateSwapchain(data);
-	} catch (const std::runtime_error &e) {
-		blog(LOG_ERROR, "device_swapchain_create (Vulkan): %s",
-		     e.what());
-		return nullptr;
-	}
-
-	return swapchain;
-}
-
 void device_resize(gs_device_t *device, uint32_t cx, uint32_t cy)
 {
 	try {
@@ -216,75 +203,6 @@ void device_update_color_space(gs_device_t *device)
 	UNUSED_PARAMETER(device);
 }
 
-void device_get_size(const gs_device_t *device, uint32_t *cx, uint32_t *cy)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(cx);
-	UNUSED_PARAMETER(cy);
-}
-
-uint32_t device_get_width(const gs_device_t *device)
-{
-	UNUSED_PARAMETER(device);
-	return 0;
-}
-
-uint32_t device_get_height(const gs_device_t *device)
-{
-	UNUSED_PARAMETER(device);
-	return 0;
-}
-
-gs_texture_t *device_texture_create(gs_device_t *device, uint32_t width,
-				    uint32_t height,
-				    enum gs_color_format color_format,
-				    uint32_t levels, const uint8_t **data,
-				    uint32_t flags)
-{
-	gs_texture *texture = nullptr;
-
-	try {
-		texture = new gs_texture_2d(device, width, height, color_format,
-					    data, flags);
-	} catch (const std::runtime_error &e) {
-		blog(LOG_ERROR, "device_texture_create (Vulkan): %s", e.what());
-	}
-
-	return texture;
-}
-
-gs_texture_t *device_cubetexture_create(gs_device_t *device, uint32_t size,
-					enum gs_color_format color_format,
-					uint32_t levels, const uint8_t **data,
-					uint32_t flags)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(size);
-	UNUSED_PARAMETER(color_format);
-	UNUSED_PARAMETER(levels);
-	UNUSED_PARAMETER(data);
-	UNUSED_PARAMETER(flags);
-	return nullptr;
-}
-
-gs_texture_t *device_voltexture_create(gs_device_t *device, uint32_t width,
-				       uint32_t height, uint32_t depth,
-				       enum gs_color_format color_format,
-				       uint32_t levels,
-				       const uint8_t *const *data,
-				       uint32_t flags)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(width);
-	UNUSED_PARAMETER(height);
-	UNUSED_PARAMETER(depth);
-	UNUSED_PARAMETER(color_format);
-	UNUSED_PARAMETER(levels);
-	UNUSED_PARAMETER(data);
-	UNUSED_PARAMETER(flags);
-	return nullptr;
-}
-
 gs_zstencil_t *device_zstencil_create(gs_device_t *device, uint32_t width,
 				      uint32_t height,
 				      enum gs_zstencil_format format)
@@ -294,22 +212,6 @@ gs_zstencil_t *device_zstencil_create(gs_device_t *device, uint32_t width,
 	UNUSED_PARAMETER(height);
 	UNUSED_PARAMETER(format);
 	return nullptr;
-}
-
-gs_samplerstate_t *
-device_samplerstate_create(gs_device_t *device,
-			   const struct gs_sampler_info *info)
-{
-	gs_sampler_state *ss = nullptr;
-
-	try {
-		ss = new gs_sampler_state(device, info);
-	} catch (const std::runtime_error &err) {
-		blog(LOG_ERROR, "device_samplerstate_create (Vulkan): %s ",
-		     err.what());
-	}
-
-	return ss;
 }
 
 gs_timer_t *device_timer_create(gs_device_t *device)
@@ -324,56 +226,11 @@ gs_timer_range_t *device_timer_range_create(gs_device_t *device)
 	return nullptr;
 }
 
-enum gs_texture_type device_get_texture_type(const gs_texture_t *texture)
-{
-	UNUSED_PARAMETER(texture);
-	return GS_TEXTURE_2D;
-}
-
-void device_load_vertexbuffer(gs_device_t *device, gs_vertbuffer_t *vertbuffer)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(vertbuffer);
-}
-
-void device_load_indexbuffer(gs_device_t *device, gs_indexbuffer_t *indexbuffer)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(indexbuffer);
-}
-
-void device_load_texture(gs_device_t *device, gs_texture_t *tex, int unit)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(tex);
-	UNUSED_PARAMETER(unit);
-}
-
 void device_load_texture_srgb(gs_device_t *device, gs_texture_t *tex, int unit)
 {
 	UNUSED_PARAMETER(device);
 	UNUSED_PARAMETER(tex);
 	UNUSED_PARAMETER(unit);
-}
-
-void device_load_samplerstate(gs_device_t *device,
-			      gs_samplerstate_t *samplerstate, int unit)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(samplerstate);
-	UNUSED_PARAMETER(unit);
-}
-
-void device_load_vertexshader(gs_device_t *device, gs_shader_t *vertshader)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(vertshader);
-}
-
-void device_load_pixelshader(gs_device_t *device, gs_shader_t *pixelshader)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(pixelshader);
 }
 
 void device_load_default_samplerstate(gs_device_t *device, bool b_3d, int unit)
@@ -385,14 +242,12 @@ void device_load_default_samplerstate(gs_device_t *device, bool b_3d, int unit)
 
 gs_shader_t *device_get_vertex_shader(const gs_device_t *device)
 {
-	UNUSED_PARAMETER(device);
-	return nullptr;
+	return device->loadedShaders[device->currentShader]->vertexShader.get();
 }
 
 gs_shader_t *device_get_pixel_shader(const gs_device_t *device)
 {
-	UNUSED_PARAMETER(device);
-	return nullptr;
+	return device->loadedShaders[device->currentShader]->fragmentShader.get();
 }
 
 gs_texture_t *device_get_render_target(const gs_device_t *device)
@@ -405,17 +260,6 @@ gs_zstencil_t *device_get_zstencil_target(const gs_device_t *device)
 {
 	UNUSED_PARAMETER(device);
 	return nullptr;
-}
-
-static void device_set_render_target_internal(gs_device_t *device,
-					      gs_texture_t *tex,
-					      gs_zstencil_t *zstencil,
-					      enum gs_color_space space)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(tex);
-	UNUSED_PARAMETER(zstencil);
-	UNUSED_PARAMETER(space);
 }
 
 void device_set_render_target(gs_device_t *device, gs_texture_t *tex,
@@ -463,31 +307,58 @@ void device_copy_texture_region(gs_device_t *device, gs_texture_t *dst,
 				gs_texture_t *src, uint32_t src_x,
 				uint32_t src_y, uint32_t src_w, uint32_t src_h)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(dst);
-	UNUSED_PARAMETER(dst_x);
-	UNUSED_PARAMETER(dst_y);
-	UNUSED_PARAMETER(src);
-	UNUSED_PARAMETER(src_x);
-	UNUSED_PARAMETER(src_y);
-	UNUSED_PARAMETER(src_w);
-	UNUSED_PARAMETER(src_h);
+	if (!src)
+		return;
+	if (!dst)
+		return;
+	if (src->textureType != GS_TEXTURE_2D || dst->textureType != GS_TEXTURE_2D)
+		return;
+	if (dst->format != src->format)
+		return;
+
+	auto src2d = static_cast<gs_texture_2d *>(src);
+	auto dst2d = static_cast<gs_texture_2d *>(dst);
+
+
+	auto copyWidth = src_w ? src_w : (src2d->width - src_x);
+	auto copyHeight = src_h ? src_h : (src2d->height - src_y);
+
+	auto dstWidth = dst2d->width - dst_x;
+	auto dstHeight = dst2d->height - dst_y;
+
+	if (dstWidth < copyWidth || dstHeight < copyHeight)
+		return;
+
+	if (dst_x == 0 && dst_y == 0 && src_x == 0 && src_y == 0 &&
+	    src_w == 0 && src_h == 0) {
+		copyWidth = 0;
+		copyHeight = 0;
+	}
+
+	vk_copyImagetoImage(device, dst->image, src->image, copyWidth, copyHeight);
 }
 
 void device_copy_texture(gs_device_t *device, gs_texture_t *dst,
 			 gs_texture_t *src)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(dst);
-	UNUSED_PARAMETER(src);
+	device_copy_texture_region(device, dst, 0, 0, src, 0, 0, 0, 0);
 }
 
 void device_stage_texture(gs_device_t *device, gs_stagesurf_t *dst,
 			  gs_texture_t *src)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(dst);
-	UNUSED_PARAMETER(src);
+	if (!src)
+		return;
+	if (!dst)
+		return;
+	if (src->textureType != GS_TEXTURE_2D)
+		return;
+	if (dst->format != src->format)
+		return;
+
+	auto src2d = static_cast<gs_texture_2d *>(src);
+
+	vk_copyImageToBuffer(device, src2d->image, dst->packBuffer->buffer, src2d->width, src2d->height);
 }
 
 void device_enter_context(gs_device_t *device)
@@ -515,47 +386,44 @@ void device_begin_scene(gs_device_t *device)
 void device_clear(gs_device_t *device, uint32_t clear_flags,
 		  const struct vec4 *color, float depth, uint8_t stencil)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(clear_flags);
-	UNUSED_PARAMETER(color);
 	UNUSED_PARAMETER(depth);
+	UNUSED_PARAMETER(stencil);
+	if (clear_flags & GS_CLEAR_COLOR)
+		device->SetClearColor(color);
 }
 
 void device_draw(gs_device_t *device, enum gs_draw_mode draw_mode,
 		 uint32_t start_vert, uint32_t num_verts)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(draw_mode);
-	UNUSED_PARAMETER(start_vert);
-	UNUSED_PARAMETER(num_verts);
+	device->UpdateDraw(start_vert, num_verts);
 }
 
 bool device_is_present_ready(gs_device_t *device)
 {
-	UNUSED_PARAMETER(device);
-	return true;
+	const auto result = device->GetLogicalDevice().waitForFences(
+		1, &device->inFlightFences[device->currentFrame], true, 0);
+
+	if (result == vk::Result::eSuccess)
+		return true;
+	else if (result == vk::Result::eTimeout)
+		return false;
+	else {
+		blog(LOG_ERROR, "vk::Device::waitForFences failed: %s",
+		     vk::to_string(result).c_str());
+
+		return false;
+	}
 }
 
 void device_present(gs_device_t *device)
 {
-	if (!device->currentSwapchain)
+	if (device->currentSwapchain == -1)
 		return;
 
 	const auto logicalDevice = device->GetLogicalDevice();
 
-	auto result = logicalDevice.waitForFences(
-		1, &device->inFlightFences[device->currentFrame], true,
-		std::numeric_limits<uint64_t>::max());
-
-	if (result != vk::Result::eSuccess) {
-		blog(LOG_ERROR, "waitForFences failed: %s",
-		     vk::to_string(result).c_str());
-
-		return;
-	}
-
-	result = logicalDevice.acquireNextImageKHR(
-		device->currentSwapchain->swapchainKHR,
+	auto result = logicalDevice.acquireNextImageKHR(
+		device->GetPresentSwapchain()->swapchainKHR,
 		std::numeric_limits<uint64_t>::max(),
 		device->imageAvailableSemaphore, nullptr,
 		&device->currentFrame);
@@ -597,10 +465,10 @@ void device_present(gs_device_t *device)
 
 	const vk::PresentInfoKHR presentInfo(
 		1, &device->renderFinishedSemaphore, 1,
-		&device->currentSwapchain->swapchainKHR, &device->currentFrame);
+		&device->GetPresentSwapchain()->swapchainKHR, &device->currentFrame);
 
 	try {
-		const auto result = device->queue.presentKHR(presentInfo);
+		result = device->queue.presentKHR(presentInfo);
 		if (result == vk::Result::eErrorOutOfDateKHR ||
 		    result == vk::Result::eSuboptimalKHR) {
 			// TODO: Recreate swapchains
@@ -612,18 +480,12 @@ void device_present(gs_device_t *device)
 	}
 
 	device->currentFrame = (device->currentFrame + 1) %
-			       device->currentSwapchain->imageCount;
+			       device->GetPresentSwapchain()->imageCount;
 }
 
 void device_end_scene(gs_device_t *device)
 {
 	UNUSED_PARAMETER(device);
-}
-
-void device_load_swapchain(gs_device_t *device, gs_swapchain_t *swapchain)
-{
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(swapchain);
 }
 
 void device_flush(gs_device_t *device)
@@ -733,105 +595,101 @@ void device_stencil_op(gs_device_t *device, enum gs_stencil_side side,
 void device_set_viewport(gs_device_t *device, int x, int y, int width,
 			 int height)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(x);
-	UNUSED_PARAMETER(y);
-	UNUSED_PARAMETER(width);
-	UNUSED_PARAMETER(height);
+	if (width <= 0 || height <= 0)
+		return;
+
+	device->viewport = vk::Viewport(static_cast<float>(x),
+					static_cast<float>(y),
+					static_cast<float>(width),
+					static_cast<float>(height), 0.0f, 1.0f);
 }
 
 void device_get_viewport(const gs_device_t *device, struct gs_rect *rect)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(rect);
+	rect->x = static_cast<int>(device->viewport.x);
+	rect->y = static_cast<int>(device->viewport.y);
+	rect->cx = static_cast<int>(device->viewport.width);
+	rect->cy = static_cast<int>(device->viewport.height);
 }
 
 void device_set_scissor_rect(gs_device_t *device, const struct gs_rect *rect)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(rect);
+	if (rect->cx <= 0 || rect->cy <= 0)
+		return;
+
+	device->scissor = vk::Rect2D({rect->x, rect->y},
+				     {static_cast<uint32_t>(rect->cx),
+				      static_cast<uint32_t>(rect->cy)});
 }
 
 void device_ortho(gs_device_t *device, float left, float right, float top,
-		  float bottom, float zNear, float zFar)
+		  float bottom, float near, float far)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(left);
-	UNUSED_PARAMETER(right);
-	UNUSED_PARAMETER(top);
-	UNUSED_PARAMETER(bottom);
-	UNUSED_PARAMETER(zNear);
-	UNUSED_PARAMETER(zFar);
+	matrix4 *dst = &device->currentProjection;
+
+	float rml = right - left;
+	float bmt = bottom - top;
+	float fmn = far - near;
+
+	vec4_zero(&dst->x);
+	vec4_zero(&dst->y);
+	vec4_zero(&dst->z);
+	vec4_zero(&dst->t);
+
+	dst->x.x = 2.0f / rml;
+	dst->t.x = (left + right) / -rml;
+
+	dst->y.y = 2.0f / -bmt;
+	dst->t.y = (bottom + top) / bmt;
+
+	dst->z.z = -2.0f / fmn;
+	dst->t.z = (far + near) / -fmn;
+
+	dst->t.w = 1.0f;
 }
 
 void device_frustum(gs_device_t *device, float left, float right, float top,
-		    float bottom, float zNear, float zFar)
+		    float bottom, float near, float far)
 {
-	UNUSED_PARAMETER(device);
-	UNUSED_PARAMETER(left);
-	UNUSED_PARAMETER(right);
-	UNUSED_PARAMETER(top);
-	UNUSED_PARAMETER(bottom);
-	UNUSED_PARAMETER(zNear);
-	UNUSED_PARAMETER(zFar);
+	matrix4 *dst = &device->currentProjection;
+
+	float rml = right - left;
+	float tmb = top - bottom;
+	float nmf = near - far;
+	float nearx2 = 2.0f * near;
+
+	vec4_zero(&dst->x);
+	vec4_zero(&dst->y);
+	vec4_zero(&dst->z);
+	vec4_zero(&dst->t);
+
+	dst->x.x = nearx2 / rml;
+	dst->z.x = (left + right) / rml;
+
+	dst->y.y = nearx2 / tmb;
+	dst->z.y = (bottom + top) / tmb;
+
+	dst->z.z = (far + near) / nmf;
+	dst->t.z = 2.0f * (near * far) / nmf;
+
+	dst->z.w = -1.0f;
 }
 
 void device_projection_push(gs_device_t *device)
 {
-	UNUSED_PARAMETER(device);
+	matrix4 mat;
+	memcpy(&mat, &device->currentProjection, sizeof(matrix4));
+	device->projectionStack.emplace_back(mat);
 }
 
 void device_projection_pop(gs_device_t *device)
 {
-	UNUSED_PARAMETER(device);
-}
+	if (device->projectionStack.empty())
+		return;
 
-void gs_swapchain_destroy(gs_swapchain_t *swapchain)
-{
-	if (swapchain->device->currentSwapchain.get() == swapchain)
-		swapchain->device->currentSwapchain = nullptr;
-}
-
-void gs_texture_destroy(gs_texture_t *tex)
-{
-	delete tex;
-}
-
-uint32_t gs_texture_get_width(const gs_texture_t *tex)
-{
-	UNUSED_PARAMETER(tex);
-	return 0;
-}
-
-uint32_t gs_texture_get_height(const gs_texture_t *tex)
-{
-	UNUSED_PARAMETER(tex);
-	return 0;
-}
-
-enum gs_color_format gs_texture_get_color_format(const gs_texture_t *tex)
-{
-	UNUSED_PARAMETER(tex);
-	return GS_UNKNOWN;
-}
-
-bool gs_texture_map(gs_texture_t *tex, uint8_t **ptr, uint32_t *linesize)
-{
-	UNUSED_PARAMETER(tex);
-	UNUSED_PARAMETER(ptr);
-	UNUSED_PARAMETER(linesize);
-	return false;
-}
-
-void gs_texture_unmap(gs_texture_t *tex)
-{
-	UNUSED_PARAMETER(tex);
-}
-
-void *gs_texture_get_obj(gs_texture_t *tex)
-{
-	UNUSED_PARAMETER(tex);
-	return nullptr;
+	const matrix4 &mat = device->projectionStack.back();
+	memcpy(&device->currentProjection, &mat, sizeof(matrix4));
+	device->projectionStack.pop_back();
 }
 
 void gs_cubetexture_destroy(gs_texture_t *cubetex)
@@ -881,112 +739,9 @@ enum gs_color_format gs_voltexture_get_color_format(const gs_texture_t *voltex)
 	return GS_UNKNOWN;
 }
 
-void gs_stagesurface_destroy(gs_stagesurf_t *stagesurf)
-{
-	delete stagesurf;
-}
-
-uint32_t gs_stagesurface_get_width(const gs_stagesurf_t *stagesurf)
-{
-	UNUSED_PARAMETER(stagesurf);
-	return 0;
-}
-
-uint32_t gs_stagesurface_get_height(const gs_stagesurf_t *stagesurf)
-{
-	UNUSED_PARAMETER(stagesurf);
-	return 0;
-}
-
-enum gs_color_format
-gs_stagesurface_get_color_format(const gs_stagesurf_t *stagesurf)
-{
-	UNUSED_PARAMETER(stagesurf);
-	return GS_UNKNOWN;
-}
-
-bool gs_stagesurface_map(gs_stagesurf_t *stagesurf, uint8_t **data,
-			 uint32_t *linesize)
-{
-	UNUSED_PARAMETER(stagesurf);
-	UNUSED_PARAMETER(data);
-	UNUSED_PARAMETER(linesize);
-	return false;
-}
-
-void gs_stagesurface_unmap(gs_stagesurf_t *stagesurf)
-{
-	UNUSED_PARAMETER(stagesurf);
-}
-
 void gs_zstencil_destroy(gs_zstencil_t *zstencil)
 {
 	UNUSED_PARAMETER(zstencil);
-}
-
-void gs_samplerstate_destroy(gs_samplerstate_t *samplerstate)
-{
-	delete samplerstate;
-}
-
-void gs_vertexbuffer_destroy(gs_vertbuffer_t *vertbuffer)
-{
-	delete vertbuffer;
-}
-
-static inline void gs_vertexbuffer_flush_internal(gs_vertbuffer_t *vertbuffer,
-						  const gs_vb_data *data)
-{
-	UNUSED_PARAMETER(vertbuffer);
-	UNUSED_PARAMETER(data);
-}
-
-void gs_vertexbuffer_flush(gs_vertbuffer_t *vertbuffer)
-{
-	UNUSED_PARAMETER(vertbuffer);
-}
-
-void gs_vertexbuffer_flush_direct(gs_vertbuffer_t *vertbuffer,
-				  const gs_vb_data *data)
-{
-	UNUSED_PARAMETER(vertbuffer);
-	UNUSED_PARAMETER(data);
-}
-
-void gs_indexbuffer_destroy(gs_indexbuffer_t *indexbuffer)
-{
-	delete indexbuffer;
-}
-
-static inline void gs_indexbuffer_flush_internal(gs_indexbuffer_t *indexbuffer,
-						 const void *data)
-{
-	UNUSED_PARAMETER(indexbuffer);
-	UNUSED_PARAMETER(data);
-}
-
-void gs_indexbuffer_flush(gs_indexbuffer_t *indexbuffer)
-{
-	UNUSED_PARAMETER(indexbuffer);
-}
-
-void gs_indexbuffer_flush_direct(gs_indexbuffer_t *indexbuffer,
-				 const void *data)
-{
-	UNUSED_PARAMETER(indexbuffer);
-	UNUSED_PARAMETER(data);
-}
-
-size_t gs_indexbuffer_get_num_indices(const gs_indexbuffer_t *indexbuffer)
-{
-	UNUSED_PARAMETER(indexbuffer);
-	return 0;
-}
-
-enum gs_index_type gs_indexbuffer_get_type(const gs_indexbuffer_t *indexbuffer)
-{
-	UNUSED_PARAMETER(indexbuffer);
-	return GS_UNSIGNED_SHORT;
 }
 
 void gs_timer_destroy(gs_timer_t *timer)

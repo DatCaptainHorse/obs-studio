@@ -22,7 +22,10 @@
 #pragma once
 
 #include <string>
+#include <vector>
+#include <memory>
 
+#include "vk-includes.hpp"
 #include <graphics/shader-parser.h>
 
 struct ShaderParser : shader_parser {
@@ -31,13 +34,16 @@ struct ShaderParser : shader_parser {
 };
 
 struct ShaderProcessor {
+	gs_device_t *device;
 	ShaderParser parser;
 
-	//void BuildInputLayout(std::vector<D3D11_INPUT_ELEMENT_DESC> &inputs);
+	void BuildInputLayout(ShaderInputs &inputs);
 	void BuildParams(std::vector<gs_shader_param> &params);
-	//void BuildSamplers(std::vector<unique_ptr<ShaderSampler>> &samplers);
+	void
+	BuildSamplers(std::vector<std::unique_ptr<gs_samplerstate_t>> &samplers);
 	void BuildString(std::string &outputString);
 	void Process(const char *shader_string, const char *file);
+	std::string Vulkanify(gs_shader_t *shader, const std::string &shaderCode, bool resetBindIndex);
 
-	inline ShaderProcessor() {}
+	inline ShaderProcessor(gs_device_t *_device) : device(_device) {}
 };

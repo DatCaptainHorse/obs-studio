@@ -18,6 +18,7 @@ target_sources(
           vk-texture.cpp
           vk-stagesurf.cpp
           vk-swapchain.cpp
+          vk-renderable.cpp
           vk-shaderhandler.hpp
           vk-shaderhandler.cpp)
 
@@ -29,7 +30,7 @@ target_compile_features(libobs-vulkan PRIVATE cxx_std_17)
 
 target_link_directories(libobs-vulkan PRIVATE ${CMAKE_PREFIX_PATH}/lib)
 
-target_link_libraries(libobs-vulkan PRIVATE OBS::libobs Vulkan::Vulkan)
+target_link_libraries(libobs-vulkan PRIVATE OBS::libobs volk)
 
 if(${CMAKE_BUILD_TYPE} MATCHES "Debug" OR ${CMAKE_BUILD_TYPE} MATCHES "RelWithDebInfo")
   target_link_libraries(libobs-vulkan PRIVATE shaderc_combinedd)

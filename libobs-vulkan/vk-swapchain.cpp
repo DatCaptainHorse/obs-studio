@@ -56,8 +56,12 @@ void createSwapchain(gs_swapchain_t *sc)
 		sc->colorSpaceKHR = vk::ColorSpaceKHR ::eSrgbNonlinear;
 	} else {
 		for (const auto &surfaceFormat : surfaceFormats) {
-			if (surfaceFormat.format ==
-			    vk::Format::eB8G8R8A8Unorm) {
+			/*if (surfaceFormat.format == vk::Format::eB8G8R8A8Srgb) {
+				sc->format = surfaceFormat.format;
+				sc->colorSpaceKHR = surfaceFormat.colorSpace;
+				break;
+			} else*/ if (surfaceFormat.format ==
+				   vk::Format::eB8G8R8A8Unorm) {
 				sc->format = surfaceFormat.format;
 				sc->colorSpaceKHR = surfaceFormat.colorSpace;
 				break;
@@ -124,15 +128,16 @@ void createSwapchain(gs_swapchain_t *sc)
 	const auto images =
 		logicalDevice.getSwapchainImagesKHR(sc->swapchainKHR);
 
-	for (const auto &image : images)
-		sc->colorImages.emplace_back(image);
-
 	/* color resources */
-	for (auto &colorImage : sc->colorImages) {
+	for (auto &image : images) {
 		try {
+			vk_image colorImage;
+			colorImage.image = image;
 			colorImage.imageView = sc->device->CreateImageView(
-				colorImage.image, vk::ImageViewType::e2D,
-				sc->format, vk::ImageAspectFlagBits::eColor);
+				colorImage.image, sc->format,
+				vk::ImageAspectFlagBits::eColor);
+
+			sc->colorImages.emplace_back(colorImage);
 		} catch (const std::runtime_error &error) {
 			throw error;
 		}
@@ -141,6 +146,7 @@ void createSwapchain(gs_swapchain_t *sc)
 	/* depth resources */
 	for (uint32_t i = 0; i < images.size(); i++) {
 		try {
+			vk_image depthImage;
 			const auto depthFormat =
 				sc->device->FindSupportedFormat(
 					{vk::Format::eD32Sfloat,
@@ -150,14 +156,14 @@ void createSwapchain(gs_swapchain_t *sc)
 					vk::FormatFeatureFlagBits::
 						eDepthStencilAttachment);
 
-			auto depthImage = sc->device->CreateImage(
+			std::tie(depthImage.image, depthImage.deviceMemory) = sc->device->CreateImage(
 				sc->extent.width, sc->extent.height,
 				depthFormat, vk::ImageTiling::eOptimal,
 				vk::ImageUsageFlagBits::eDepthStencilAttachment,
 				vk::MemoryPropertyFlagBits::eDeviceLocal);
 
 			depthImage.imageView = sc->device->CreateImageView(
-				depthImage.image, vk::ImageViewType::e2D,
+				depthImage.image,
 				depthFormat, vk::ImageAspectFlagBits::eDepth);
 
 			vk_transitionImageLayout(
@@ -176,7 +182,7 @@ void cleanSwapchain(gs_swapchain_t *swapchain)
 {
 	const auto logicalDevice = swapchain->device->GetLogicalDevice();
 
-	for (const auto &depthImage : swapchain->depthImages) {
+	for (auto &depthImage : swapchain->depthImages) {
 		logicalDevice.destroyImage(depthImage.image);
 		logicalDevice.destroyImageView(depthImage.imageView);
 		logicalDevice.freeMemory(depthImage.deviceMemory);
@@ -184,7 +190,7 @@ void cleanSwapchain(gs_swapchain_t *swapchain)
 
 	swapchain->depthImages.clear();
 
-	for (const auto &colorImage : swapchain->colorImages)
+	for (auto &colorImage : swapchain->colorImages)
 		logicalDevice.destroyImageView(colorImage.imageView);
 
 	swapchain->colorImages.clear();
@@ -195,7 +201,7 @@ void cleanSwapchain(gs_swapchain_t *swapchain)
 gs_swap_chain::gs_swap_chain(gs_device_t *_device, const gs_init_data *data,
 			     std::unique_ptr<vulkan_surface> _surface,
 			     uint32_t queueFamilyIndex)
-	: device(_device),
+	: vk_object(_device, vk_type::VK_SWAPCHAIN),
 	  surface(std::move(_surface)),
 	  usedFamilyIndex(queueFamilyIndex)
 {
@@ -212,13 +218,77 @@ gs_swap_chain::gs_swap_chain(gs_device_t *_device, const gs_init_data *data,
 
 void gs_swap_chain::Recreate(uint32_t cx, uint32_t cy)
 {
+	if (cx == initData->cx && cy == initData->cy)
+		return;
+
 	initData->cx = cx;
 	initData->cy = cy;
 	cleanSwapchain(this);
 	createSwapchain(this);
 }
 
+void gs_swap_chain::Recreate()
+{
+	Recreate(initData->cx, initData->cy);
+}
+
 gs_swap_chain::~gs_swap_chain()
 {
 	cleanSwapchain(this);
+}
+
+gs_swapchain_t *device_swapchain_create(gs_device_t *device,
+					const struct gs_init_data *data)
+{
+	gs_swap_chain *swapchain = nullptr;
+
+	try {
+		swapchain = device->CreateSwapchain(data);
+	} catch (const std::runtime_error &e) {
+		blog(LOG_ERROR, "device_swapchain_create (Vulkan): %s",
+		     e.what());
+		return nullptr;
+	}
+
+	return swapchain;
+}
+
+void device_load_swapchain(gs_device_t *device, gs_swapchain_t *swapchain)
+{
+	int32_t scIdx = device->GetLoadedSwapchainIdx(swapchain->initData.get());
+	if (scIdx != -1)
+		device->currentSwapchain = scIdx;
+}
+
+void device_get_size(const gs_device_t *device, uint32_t *cx, uint32_t *cy)
+{
+	if (device->currentSwapchain != -1) {
+		const auto &sc = device->loadedSwapchains[device->currentSwapchain];
+		cx = &sc->extent.width;
+		cy = &sc->extent.height;
+	} else {
+		*cx = 0;
+		*cy = 0;
+	}
+}
+
+uint32_t device_get_width(const gs_device_t *device)
+{
+	if (device->currentSwapchain != -1)
+		return device->loadedSwapchains[device->currentSwapchain]->extent.width;
+
+	return 0;
+}
+
+uint32_t device_get_height(const gs_device_t *device)
+{
+	if (device->currentSwapchain != -1)
+		return device->loadedSwapchains[device->currentSwapchain]->extent.height;
+
+	return 0;
+}
+
+void gs_swapchain_destroy(gs_swapchain_t *swapchain)
+{
+	swapchain->markedForDeletion = true;
 }

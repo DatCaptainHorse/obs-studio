@@ -17,6 +17,7 @@
 
 #include "vk-subsystem.hpp"
 #include "vk-shaderhandler.hpp"
+#include "vk-helpers.hpp"
 
 #include <string>
 #include <fstream>
@@ -28,7 +29,84 @@
 #include <graphics/vec4.h>
 #include <shaderc/shaderc.hpp>
 
-void gs_shader::BuildConstantBuffer()
+std::vector<vk::DescriptorSetLayoutBinding> VulkanShader::SetupBindings()
+{
+	std::vector<vk::DescriptorSetLayoutBinding> result;
+
+	for (const auto [binding, type] : vertexShader->bindings) {
+		/*if (fragmentShader->bindings.find(binding) ==
+		    fragmentShader->bindings.end())
+			bindings.emplace_back(vk::DescriptorSetLayoutBinding(
+				binding, type, 1,
+				vk::ShaderStageFlagBits::eVertex));
+		else*/ /* TODO: ^ See if this is even necessary, causes a validation with a shader ^ */
+		result.emplace_back(vk::DescriptorSetLayoutBinding(
+				binding, type, 1,
+				vk::ShaderStageFlagBits::eVertex |
+					vk::ShaderStageFlagBits::eFragment));
+	}
+
+	for (const auto [binding, type] : fragmentShader->bindings) {
+		if (vertexShader->bindings.find(binding) ==
+		    vertexShader->bindings.end())
+			result.emplace_back(vk::DescriptorSetLayoutBinding(
+				binding, type, 1,
+				vk::ShaderStageFlagBits::eFragment));
+	}
+
+	return result;
+}
+
+void VulkanShader::Recreate()
+{
+	const auto logicalDevice = device->GetLogicalDevice();
+
+	if (pipeline)
+		logicalDevice.destroyPipeline(pipeline);
+	if (pipelineLayout)
+		logicalDevice.destroyPipelineLayout(pipelineLayout);
+	if (descriptorSetLayout)
+		logicalDevice.destroyDescriptorSetLayout(descriptorSetLayout);
+
+	descriptorSetLayout = device->CreateDescriptorSetLayout(descSetLayoutBindings);
+	pipelineLayout = device->CreatePipelineLayout(descriptorSetLayout);
+	if (device->currentSwapchain != -1)
+		pipeline = device->CreateGraphicsPipeline(vertexShader.get(),
+							  fragmentShader.get(),
+							  pipelineLayout);
+}
+
+VulkanShader::VulkanShader(gs_device_t *_device, gs_vertex_shader *_vertexShader,
+			   gs_fragment_shader *_fragmentShader)
+	: vk_object(_device, vk_type::VK_COMBINEDSHADER),
+	  vertexShader(std::unique_ptr<gs_vertex_shader>(_vertexShader)),
+	  fragmentShader(std::unique_ptr<gs_fragment_shader>(_fragmentShader))
+{
+	descSetLayoutBindings = SetupBindings();
+	descriptorSetLayout = device->CreateDescriptorSetLayout(descSetLayoutBindings);
+	pipelineLayout = device->CreatePipelineLayout(descriptorSetLayout);
+	if (device->currentSwapchain != -1)
+		pipeline = device->CreateGraphicsPipeline(vertexShader.get(),
+							  fragmentShader.get(),
+						  	  pipelineLayout);
+
+	matrix4_identity(&view);
+	matrix4_identity(&projection);
+	matrix4_identity(&viewProjection);
+}
+
+VulkanShader::~VulkanShader()
+{
+	const auto logicalDevice = device->GetLogicalDevice();
+	if (pipeline)
+		logicalDevice.destroyPipeline(pipeline);
+	if (pipelineLayout)
+		logicalDevice.destroyPipelineLayout(pipelineLayout);
+	if (descriptorSetLayout)
+		logicalDevice.destroyDescriptorSetLayout(descriptorSetLayout);
+}
+
+void gs_shader::BuildUniformBuffer()
 {
 	for (size_t i = 0; i < params.size(); i++) {
 		gs_shader_param &param = params[i];
@@ -80,8 +158,8 @@ void gs_shader::BuildConstantBuffer()
 	if (constantSize) {
 		try {
 			uniformBuffer = std::make_unique<gs_uniform_buffer>(
-				device, (constantSize + 15) & 0xFFFFFFF0,
-				nullptr);
+					device,
+					(constantSize + 15) & 0xFFFFFFF0);
 		} catch (const std::runtime_error &e) {
 			blog(LOG_ERROR, "Failed to create uniform buffer: %s",
 			     e.what());
@@ -90,6 +168,21 @@ void gs_shader::BuildConstantBuffer()
 
 	for (size_t i = 0; i < params.size(); i++)
 		gs_shader_set_default(&params[i]);
+}
+
+void gs_vertex_shader::GetBuffersExpected(const ShaderInputs &inputs)
+{
+	for (size_t i = 0; i < inputs.descs.size(); i++) {
+		const auto &input = inputs.descs[i];
+		if (strcmp(inputs.names[i].c_str(), "NORMAL") == 0)
+			hasNormals = true;
+		else if (strcmp(inputs.names[i].c_str(), "TANGENT") == 0)
+			hasTangents = true;
+		else if (strcmp(inputs.names[i].c_str(), "COLOR") == 0)
+			hasColors = true;
+		else if (strcmp(inputs.names[i].c_str(), "TEXCOORD") == 0)
+			nTexUnits++;
+	}
 }
 
 std::filesystem::path GetCachePath(const std::string &file)
@@ -109,10 +202,8 @@ void CreateSPIRVFile(const std::string &file, std::vector<uint32_t> spirv)
 			      std::ios::out | std::ios::binary);
 
 	if (spvFile.is_open()) {
-		spvFile.write(
-			reinterpret_cast<const char *>(
-				spirv.data()),
-			spirv.size() * sizeof(uint32_t));
+		spvFile.write(reinterpret_cast<const char *>(spirv.data()),
+			      spirv.size() * sizeof(uint32_t));
 
 		spvFile.close();
 	}
@@ -125,41 +216,51 @@ std::vector<uint32_t> ReadSPIRVFile(const std::string &file)
 			      std::ios::in | std::ios::binary);
 
 	if (spvFile.is_open()) {
-		spirv.resize(std::filesystem::file_size(GetCachePath(file + ".spv")) / sizeof(uint32_t));
-		spvFile.read(
-			reinterpret_cast<char *>(
-				spirv.data()),
-			spirv.size() * sizeof(uint32_t));
+		spirv.resize(std::filesystem::file_size(
+				     GetCachePath(file + ".spv")) /
+			     sizeof(uint32_t));
+		spvFile.read(reinterpret_cast<char *>(spirv.data()),
+			     spirv.size() * sizeof(uint32_t));
 
 		spvFile.close();
 	}
 	return spirv;
 }
 
-void UpdateCache(const std::string &file, std::size_t hash, std::vector<uint32_t> spirv)
+void UpdateCache(const std::string &file, std::size_t hash,
+		 std::vector<uint32_t> spirv)
 {
-	std::fstream cache(GetCachePath("hashes.txt").string(), std::ios::in | std::ios::out | std::ios::app);
-	cache.seekg(0, std::ios::beg);
+	std::vector<std::string> cacheUpdate;
+	std::ifstream cache(GetCachePath("hashes.txt").string());
 	if (cache.is_open()) {
 		std::string line;
-		bool found = false;
-		while (std::getline(cache, line)) {
-			if (line.find(file) != std::string::npos) {
-				found = true;
-				cache << file << "\t" << hash << std::endl;
-				/* replace old .spv file */
-				CreateSPIRVFile(file, spirv);
-				break;
-			}
-		}
+		while (std::getline(cache, line))
+			cacheUpdate.emplace_back(line);
+	}
+	cache.close();
 
-		if (!found) {
-			cache.clear();
-			cache << file << "\t" << hash << std::endl;
-			/* add new .spv file */
-			CreateSPIRVFile(file, spirv);
+	/* updating in-memory cache with new values */
+	bool updated = false;
+	for (auto &line : cacheUpdate) {
+		const auto name = line.substr(0, line.find('\t'));
+		if (name == file) {
+			line = file + "\t" + std::to_string(hash);
+			updated = true;
+			break;
 		}
 	}
+
+	if (!updated)
+		cacheUpdate.emplace_back(file + "\t" + std::to_string(hash));
+
+	CreateSPIRVFile(file, spirv);
+
+	std::ofstream cacheOut(GetCachePath("hashes.txt").string());
+	if (cacheOut.is_open()) {
+		for (const auto &line : cacheUpdate)
+			cacheOut << line << std::endl;
+	}
+	cacheOut.close();
 }
 
 std::size_t CreateHash(const std::string &contents)
@@ -184,20 +285,6 @@ std::size_t GetCachedHash(const std::string &file)
 	return {};
 }
 
-std::string GetStringBetween(const std::string &str, const std::string &start, const std::string &end)
-{
-	std::size_t start_pos = str.find_last_of(start);
-	if (start_pos == std::string::npos)
-		return "";
-
-	start_pos += start.length();
-	std::size_t end_pos = str.find(end, start_pos);
-	if (end_pos == std::string::npos)
-		return "";
-
-	return str.substr(start_pos, end_pos - start_pos);
-}
-
 std::string ProcessString(const std::string &str)
 {
 	std::stringstream ss;
@@ -213,33 +300,18 @@ std::string ProcessString(const std::string &str)
 	return ss.str();
 }
 
-gs_shader::gs_shader(gs_device_t *device, gs_shader_type type, const char *source, const char *file)
-	: device(device), type(type), constantSize(0)
+void gs_shader::Compile(const std::string &source)
 {
-
-	/* processing */
-	std::string hlslSource;
-	ShaderProcessor processor;
-	processor.Process(source, file);
-	processor.BuildString(hlslSource);
-	processor.BuildParams(params);
-	BuildConstantBuffer();
-
 	/* SPIR-V compilation and caching */
-	/* look for identical shader in cache */
-	auto strFile = GetStringBetween(file, "/", ")");
-	strFile = ProcessString(strFile);
-	std::size_t hash = GetCachedHash(strFile);
-	bool isCached = false;
-	if (hash) {
-		const auto comp = CreateHash(source);
-		if (comp == hash)
-			isCached = true;
-	}
+	/* taking out relative paths and shortening file string */
+	name = GetStringBetween(file, "/", ")");
+	name = ProcessString(name);
+	const auto hash = CreateHash(source);
+	const auto cachedHash = GetCachedHash(name);
 
-	if (!isCached) {
+	if (!cachedHash || hash != cachedHash) {
 		/* shader not cached, compile and cache */
-		blog(LOG_INFO, "Compiling Shader to SPIR-V: %s", file);
+		blog(LOG_INFO, "Compiling Shader to SPIR-V: %s", file.c_str());
 
 		shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
@@ -253,54 +325,169 @@ gs_shader::gs_shader(gs_device_t *device, gs_shader_type type, const char *sourc
 		options.SetSourceLanguage(shaderc_source_language_hlsl);
 		options.SetTargetSpirv(shaderc_spirv_version_1_5);
 
-		if (type == GS_SHADER_VERTEX) {
-			const auto compiled = compiler.CompileGlslToSpv(
-				hlslSource.c_str(), hlslSource.size(),
-				shaderc_glsl_vertex_shader, file, options);
+		const auto compiled = compiler.CompileGlslToSpv(
+			source.c_str(), source.size(),
+			type == GS_SHADER_VERTEX ? shaderc_glsl_vertex_shader
+						 : shaderc_glsl_fragment_shader,
+			name.c_str(), options);
 
-			if (compiled.GetCompilationStatus() !=
-			    shaderc_compilation_status_success)
-				throw std::runtime_error(
-					(compiled.GetErrorMessage() +
-					 std::string("\n\n\n") + hlslSource +
-					 std::string("\n\n\n")));
+		if (compiled.GetCompilationStatus() !=
+		    shaderc_compilation_status_success)
+			throw std::runtime_error(compiled.GetErrorMessage());
 
-			spirv = {compiled.cbegin(), compiled.cend()};
-		} else if (type == GS_SHADER_PIXEL) {
-			const auto compiled = compiler.CompileGlslToSpv(
-				hlslSource.c_str(), hlslSource.size(),
-				shaderc_glsl_fragment_shader, file, options);
-
-			if (compiled.GetCompilationStatus() !=
-			    shaderc_compilation_status_success)
-				throw std::runtime_error(
-					(compiled.GetErrorMessage() +
-					 std::string("\n\n\n") + hlslSource +
-					 std::string("\n\n\n")));
-
-			spirv = {compiled.cbegin(), compiled.cend()};
-		} else
-			throw std::runtime_error("Invalid Shader type");
+		spirv = {compiled.cbegin(), compiled.cend()};
 
 		/* cache the shader */
-		const auto hsh = CreateHash(source);
-		UpdateCache(strFile, hsh, spirv);
+		UpdateCache(name, hash, spirv);
 	} else {
 		/* shader is cached, load from cache */
-		spirv = ReadSPIRVFile(strFile);
+		spirv = ReadSPIRVFile(name);
 	}
 }
 
-gs_shader::~gs_shader() {}
+void gs_shader::UpdateParam(std::vector<uint8_t> &constData,
+				   gs_shader_param &param, bool &upload)
+{
+	if (param.type != GS_SHADER_PARAM_TEXTURE) {
+		if (param.curValue.empty())
+			throw std::runtime_error("Not all shader parameters were set");
 
-gs_vertex_shader::gs_vertex_shader(gs_device_t *device, const char *source, const char *file)
-	: gs_shader(device, GS_SHADER_VERTEX, source, file)
+		/* padding in case the constant needs to start at a new
+		 * register */
+		if (param.pos > constData.size()) {
+			uint8_t zero = 0;
+
+			constData.insert(constData.end(),
+					 param.pos - constData.size(), zero);
+		}
+
+		constData.insert(constData.end(), param.curValue.begin(),
+				 param.curValue.end());
+
+		if (param.changed) {
+			upload = true;
+			param.changed = false;
+		}
+
+	} else if (param.curValue.size() == sizeof(gs_shader_texture)) {
+		gs_shader_texture shader_tex;
+		memcpy(&shader_tex, param.curValue.data(), sizeof(shader_tex));
+		if (shader_tex.srgb)
+			device_load_texture_srgb(device, shader_tex.tex,
+						 0); // TODO: Tex units
+		else
+			device_load_texture(device, shader_tex.tex,
+					    0); // TODO: Tex units
+
+		if (param.nextSampler) {
+			//const auto &sampler = param.nextSampler->sampler;
+			// TODO: This
+			param.nextSampler = nullptr;
+		}
+	}
+}
+
+void gs_shader::UploadParams()
+{
+	std::vector<uint8_t> constData;
+	bool upload = false;
+
+	constData.reserve(constantSize);
+
+	for (size_t i = 0; i < params.size(); i++)
+		UpdateParam(constData, params[i], upload);
+
+	if (constData.size() != constantSize)
+		throw std::runtime_error("Invalid constant data size given to shader");
+
+	if (upload)
+		uniformBuffer->Update(constData.data(), constantSize);
+}
+
+gs_shader::gs_shader(gs_device_t *device, gs_shader_type type, std::string file)
+	: vk_object(device, type == GS_SHADER_VERTEX
+				    ? vk_type::VK_VERTEXSHADER
+				    : vk_type::VK_FRAGMENTSHADER),
+	  type(type),
+	  file(file)
 {
 }
 
-gs_fragment_shader::gs_fragment_shader(gs_device_t *device, const char *source, const char *file)
-	: gs_shader(device, GS_SHADER_PIXEL, source, file)
+gs_shader::~gs_shader()
 {
+	const auto logicalDevice = device->GetLogicalDevice();
+	logicalDevice.destroyShaderModule(module);
+	uniformBuffer.reset();
+}
+
+gs_vertex_shader::gs_vertex_shader(gs_device_t *_device, const char *source,
+				   const char *file)
+	: gs_shader(_device, GS_SHADER_VERTEX, file)
+{
+	/* processing */
+	std::string hlslSource;
+	ShaderProcessor processor(device);
+	processor.Process(source, file);
+	processor.BuildString(hlslSource);
+	processor.BuildParams(params);
+	processor.BuildInputLayout(shaderInputs);
+	const auto vulkanified = processor.Vulkanify(this, hlslSource, true);
+	GetBuffersExpected(shaderInputs);
+	BuildUniformBuffer();
+
+	code = vulkanified;
+
+	try {
+		Compile(vulkanified);
+	} catch (const std::runtime_error &e) {
+		throw e;
+	}
+
+	module = device->CreateShaderModule(this);
+
+	viewProjection = gs_shader_get_param_by_name(this, "ViewProj");
+	world = gs_shader_get_param_by_name(this, "World");
+}
+
+gs_fragment_shader::gs_fragment_shader(gs_device_t *_device, const char *source,
+				       const char *file)
+	: gs_shader(_device, GS_SHADER_PIXEL, file)
+{
+	/* processing */
+	std::string hlslSource;
+	ShaderProcessor processor(device);
+	processor.Process(source, file);
+	processor.BuildString(hlslSource);
+	processor.BuildParams(params);
+	processor.BuildSamplers(samplers);
+	const auto vulkanified = processor.Vulkanify(this, hlslSource, false);
+	BuildUniformBuffer();
+
+	code = vulkanified;
+
+	try {
+		Compile(vulkanified);
+	} catch (const std::runtime_error &e) {
+		throw e;
+	}
+
+	module = device->CreateShaderModule(this);
+}
+
+gs_shader_param::gs_shader_param(shader_var &var, uint32_t &texCounter)
+	: name(var.name),
+	  type(get_shader_param_type(var.type)),
+	  arrayCount(var.array_count),
+	  textureID(texCounter),
+	  changed(false)
+{
+	defaultValue.resize(var.default_val.num);
+	memcpy(defaultValue.data(), var.default_val.array, var.default_val.num);
+
+	if (type == GS_SHADER_PARAM_TEXTURE)
+		texCounter++;
+	else
+		textureID = 0;
 }
 
 gs_shader_t *device_vertexshader_create(gs_device_t *device,
@@ -310,8 +497,9 @@ gs_shader_t *device_vertexshader_create(gs_device_t *device,
 	gs_vertex_shader *shader = nullptr;
 
 	try {
-		shader = new gs_vertex_shader(device, shader_string, file);
-		shader->vertexModule = device->CreateShaderModule(shader);
+		shader = static_cast<gs_vertex_shader *>(
+			device->SubmitShader(std::make_unique<gs_vertex_shader>(
+				device, shader_string, file)));
 	} catch (const std::runtime_error &e) {
 		blog(LOG_ERROR, "device_vertexshader_create (Vulkan): %s",
 		     e.what());
@@ -328,40 +516,31 @@ gs_shader_t *device_pixelshader_create(gs_device_t *device,
 	gs_fragment_shader *shader = nullptr;
 
 	try {
-		shader = new gs_fragment_shader(device, shader_string, file);
-		shader->fragmentModule = device->CreateShaderModule(shader);
-
+		shader = static_cast<gs_fragment_shader *>(device->SubmitShader(
+			std::make_unique<gs_fragment_shader>(
+				device, shader_string, file)));
 	} catch (const std::runtime_error &e) {
 		blog(LOG_ERROR, "device_pixelshader_create (Vulkan): %s",
 		     e.what());
 		return nullptr;
 	}
 
-	/* pipeline creation */
-	if (shader->vertexModule) {
-		try {
-			shader->pipeline = device->CreateGraphicsPipeline(
-				shader->vertexModule, shader->fragmentModule);
-
-			device->GetLogicalDevice().destroyShaderModule(
-				shader->vertexModule);
-
-			device->GetLogicalDevice().destroyShaderModule(
-				shader->fragmentModule);
-		} catch (const std::runtime_error &e) {
-			blog(LOG_ERROR,
-			     "device_pixelshader_create (Vulkan): %s",
-			     e.what());
-			return nullptr;
-		}
-	}
-
 	return shader;
+}
+
+void device_load_vertexshader(gs_device_t *device, gs_shader_t *vertshader)
+{
+	device->SetShader(vertshader);
+}
+
+void device_load_pixelshader(gs_device_t *device, gs_shader_t *pixelshader)
+{
+	device->SetShader(pixelshader);
 }
 
 void gs_shader_destroy(gs_shader_t *shader)
 {
-	UNUSED_PARAMETER(shader);
+	shader->markedForDeletion = true;
 }
 
 int gs_shader_get_num_params(const gs_shader_t *shader)
@@ -386,81 +565,28 @@ gs_sparam_t *gs_shader_get_param_by_name(gs_shader_t *shader, const char *name)
 
 gs_sparam_t *gs_shader_get_viewproj_matrix(const gs_shader_t *shader)
 {
-	UNUSED_PARAMETER(shader);
-	return nullptr;
+	if (!shader || shader->type != GS_SHADER_VERTEX)
+		return nullptr;
+
+	return static_cast<const gs_vertex_shader *>(shader)->viewProjection;
 }
 
 gs_sparam_t *gs_shader_get_world_matrix(const gs_shader_t *shader)
 {
-	UNUSED_PARAMETER(shader);
-	return nullptr;
+	if (!shader || shader->type != GS_SHADER_VERTEX)
+		return nullptr;
+
+	return static_cast<const gs_vertex_shader *>(shader)->world;
 }
 
 void gs_shader_get_param_info(const gs_sparam_t *param,
 			      struct gs_shader_param_info *info)
 {
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(info);
-}
+	if (!param)
+		return;
 
-void gs_shader_set_bool(gs_sparam_t *param, bool val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_float(gs_sparam_t *param, float val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_int(gs_sparam_t *param, int val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_matrix3(gs_sparam_t *param, const struct matrix3 *val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_matrix4(gs_sparam_t *param, const struct matrix4 *val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_vec2(gs_sparam_t *param, const struct vec2 *val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_vec3(gs_sparam_t *param, const struct vec3 *val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_vec4(gs_sparam_t *param, const struct vec4 *val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_texture(gs_sparam_t *param, gs_texture_t *val)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
-}
-
-void gs_shader_set_val(gs_sparam_t *param, const void *val, size_t size)
-{
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(val);
+	info->name = param->name.c_str();
+	info->type = param->type;
 }
 
 static inline void shader_setval_inline(gs_shader_param *param,
@@ -479,6 +605,59 @@ static inline void shader_setval_inline(gs_shader_param *param,
 	}
 }
 
+void gs_shader_set_bool(gs_sparam_t *param, bool val)
+{
+	int b = static_cast<int>(val);
+	shader_setval_inline(param, &b, sizeof(int));
+}
+
+void gs_shader_set_float(gs_sparam_t *param, float val)
+{
+	shader_setval_inline(param, &val, sizeof(float));
+}
+
+void gs_shader_set_int(gs_sparam_t *param, int val)
+{
+	shader_setval_inline(param, &val, sizeof(int));
+}
+
+void gs_shader_set_matrix3(gs_sparam_t *param, const struct matrix3 *val)
+{
+	matrix4 mat;
+	matrix4_from_matrix3(&mat, val);
+	shader_setval_inline(param, &mat, sizeof(matrix4));
+}
+
+void gs_shader_set_matrix4(gs_sparam_t *param, const struct matrix4 *val)
+{
+	shader_setval_inline(param, val, sizeof(matrix4));
+}
+
+void gs_shader_set_vec2(gs_sparam_t *param, const struct vec2 *val)
+{
+	shader_setval_inline(param, val, sizeof(vec2));
+}
+
+void gs_shader_set_vec3(gs_sparam_t *param, const struct vec3 *val)
+{
+	shader_setval_inline(param, val, sizeof(float) * 3);
+}
+
+void gs_shader_set_vec4(gs_sparam_t *param, const struct vec4 *val)
+{
+	shader_setval_inline(param, val, sizeof(vec4));
+}
+
+void gs_shader_set_texture(gs_sparam_t *param, gs_texture_t *val)
+{
+	shader_setval_inline(param, &val, sizeof(gs_texture_t *));
+}
+
+void gs_shader_set_val(gs_sparam_t *param, const void *val, size_t size)
+{
+	shader_setval_inline(param, val, size);
+}
+
 void gs_shader_set_default(gs_sparam_t *param)
 {
 	if (!param->defaultValue.empty())
@@ -488,6 +667,5 @@ void gs_shader_set_default(gs_sparam_t *param)
 
 void gs_shader_set_next_sampler(gs_sparam_t *param, gs_samplerstate_t *sampler)
 {
-	UNUSED_PARAMETER(param);
-	UNUSED_PARAMETER(sampler);
+	param->nextSampler = sampler;
 }

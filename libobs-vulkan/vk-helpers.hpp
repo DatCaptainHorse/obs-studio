@@ -19,7 +19,7 @@
 
 #include "vk-includes.hpp"
 
-static inline vk::Format convert_gs_format(gs_color_format format)
+static inline vk::Format ConvertGSFormat(gs_color_format format)
 {
 	vk::Format result;
 
@@ -98,6 +98,159 @@ static inline vk::Format convert_gs_format(gs_color_format format)
 	return result;
 }
 
+static inline vk::SamplerAddressMode
+ConvertGSAddressMode(gs_address_mode mode)
+{
+	vk::SamplerAddressMode samplerMode;
+
+	switch (mode) {
+	case GS_ADDRESS_WRAP:
+		samplerMode = vk::SamplerAddressMode::eRepeat;
+		break;
+	case GS_ADDRESS_CLAMP:
+		samplerMode = vk::SamplerAddressMode::eClampToEdge;
+		break;
+	case GS_ADDRESS_MIRROR:
+		samplerMode = vk::SamplerAddressMode::eMirroredRepeat;
+		break;
+	case GS_ADDRESS_BORDER:
+		samplerMode = vk::SamplerAddressMode::eClampToBorder;
+		break;
+	case GS_ADDRESS_MIRRORONCE:
+		samplerMode = vk::SamplerAddressMode::eMirrorClampToEdge;
+		break;
+	default:
+		samplerMode = vk::SamplerAddressMode::eRepeat;
+		break;
+	}
+
+	return samplerMode;
+}
+
+static inline gs_address_mode ConvertVkAddressMode(vk::SamplerAddressMode mode)
+{
+	gs_address_mode result;
+
+	switch (mode) {
+	case vk::SamplerAddressMode::eRepeat:
+		result = GS_ADDRESS_WRAP;
+		break;
+	case vk::SamplerAddressMode::eClampToEdge:
+		result = GS_ADDRESS_CLAMP;
+		break;
+	case vk::SamplerAddressMode::eMirroredRepeat:
+		result = GS_ADDRESS_MIRROR;
+		break;
+	case vk::SamplerAddressMode::eClampToBorder:
+		result = GS_ADDRESS_BORDER;
+		break;
+	case vk::SamplerAddressMode::eMirrorClampToEdge:
+		result = GS_ADDRESS_MIRRORONCE;
+		break;
+	default:
+		result = GS_ADDRESS_WRAP;
+		break;
+	}
+
+	return result;
+}
+
+static inline std::tuple<vk::Filter, vk::Filter, vk::SamplerMipmapMode> ConvertGSFilter(gs_sample_filter filter)
+{
+	vk::Filter minFilter, magFilter;
+	vk::SamplerMipmapMode mipMode;
+
+	switch (filter) {
+	case GS_FILTER_POINT:
+		minFilter = magFilter = vk::Filter::eNearest;
+		mipMode = vk::SamplerMipmapMode::eNearest;
+		break;
+	case GS_FILTER_LINEAR:
+		minFilter = magFilter = vk::Filter::eLinear;
+		mipMode = vk::SamplerMipmapMode::eLinear;
+		break;
+	case GS_FILTER_MIN_MAG_POINT_MIP_LINEAR:
+		minFilter = vk::Filter::eNearest;
+		magFilter = vk::Filter::eNearest;
+		mipMode = vk::SamplerMipmapMode::eLinear;
+		break;
+	case GS_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT:
+		minFilter = vk::Filter::eNearest;
+		magFilter = vk::Filter::eLinear;
+		mipMode = vk::SamplerMipmapMode::eNearest;
+		break;
+	case GS_FILTER_MIN_POINT_MAG_MIP_LINEAR:
+		minFilter = vk::Filter::eNearest;
+		magFilter = vk::Filter::eLinear;
+		mipMode = vk::SamplerMipmapMode::eLinear;
+		break;
+	case GS_FILTER_MIN_LINEAR_MAG_MIP_POINT:
+		minFilter = vk::Filter::eLinear;
+		magFilter = vk::Filter::eNearest;
+		mipMode = vk::SamplerMipmapMode::eNearest;
+		break;
+	case GS_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR:
+		minFilter = vk::Filter::eLinear;
+		magFilter = vk::Filter::eNearest;
+		mipMode = vk::SamplerMipmapMode::eLinear;
+		break;
+	case GS_FILTER_MIN_MAG_LINEAR_MIP_POINT:
+		minFilter = vk::Filter::eLinear;
+		magFilter = vk::Filter::eLinear;
+		mipMode = vk::SamplerMipmapMode::eNearest;
+		break;
+	case GS_FILTER_ANISOTROPIC:
+		minFilter = magFilter = vk::Filter::eLinear;
+		mipMode = vk::SamplerMipmapMode::eLinear;
+		break;
+	default:
+		minFilter = magFilter = vk::Filter::eNearest;
+		mipMode = vk::SamplerMipmapMode::eNearest;
+		break;
+	}
+
+	return std::make_tuple(minFilter, magFilter, mipMode);
+}
+
+static inline gs_sample_filter ConvertVkFilter(
+	std::tuple<vk::Filter, vk::Filter, vk::SamplerMipmapMode> filter)
+{
+	auto [min, mag, mip] = filter;
+	gs_sample_filter result;
+
+	if (min == vk::Filter::eNearest && mag == vk::Filter::eNearest &&
+	    mip == vk::SamplerMipmapMode::eNearest)
+		result = GS_FILTER_POINT;
+	else if (min == vk::Filter::eLinear && mag == vk::Filter::eLinear &&
+		 mip == vk::SamplerMipmapMode::eLinear)
+		result = GS_FILTER_LINEAR;
+	else if (min == vk::Filter::eNearest && mag == vk::Filter::eNearest &&
+		 mip == vk::SamplerMipmapMode::eLinear)
+		result = GS_FILTER_MIN_MAG_POINT_MIP_LINEAR;
+	else if (min == vk::Filter::eNearest && mag == vk::Filter::eLinear &&
+		 mip == vk::SamplerMipmapMode::eNearest)
+		result = GS_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT;
+	else if (min == vk::Filter::eNearest && mag == vk::Filter::eLinear &&
+		 mip == vk::SamplerMipmapMode::eLinear)
+		result = GS_FILTER_MIN_POINT_MAG_MIP_LINEAR;
+	else if (min == vk::Filter::eLinear && mag == vk::Filter::eNearest &&
+		 mip == vk::SamplerMipmapMode::eNearest)
+		result = GS_FILTER_MIN_LINEAR_MAG_MIP_POINT;
+	else if (min == vk::Filter::eLinear && mag == vk::Filter::eNearest &&
+		 mip == vk::SamplerMipmapMode::eLinear)
+		result = GS_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR;
+	else if (min == vk::Filter::eLinear && mag == vk::Filter::eLinear &&
+		 mip == vk::SamplerMipmapMode::eNearest)
+		result = GS_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	else if (min == vk::Filter::eLinear && mag == vk::Filter::eLinear &&
+		 mip == vk::SamplerMipmapMode::eLinear)
+		result = GS_FILTER_ANISOTROPIC;
+	else
+		result = GS_FILTER_POINT;
+
+	return result;
+}
+
 inline uint32_t
 vk_findMemoryType(const vk::PhysicalDeviceMemoryProperties &memoryProperties,
 		  uint32_t filter, vk::MemoryPropertyFlags requirements)
@@ -116,12 +269,12 @@ vk_findMemoryType(const vk::PhysicalDeviceMemoryProperties &memoryProperties,
 inline void vk_copyBuffer(gs_device_t *device, const vk::Buffer &src, vk::Buffer &dst,
 			  vk::DeviceSize size)
 {
-	const auto commandBuffer = device->BeginCommandBuffer();
+	device->BeginCommandBuffer();
 
 	const vk::BufferCopy bufferCopy(0, 0, size);
-	commandBuffer.copyBuffer(src, dst, bufferCopy);
+	device->instantBuffer.copyBuffer(src, dst, bufferCopy);
 
-	device->EndCommandBuffer(commandBuffer);
+	device->EndCommandBuffer();
 }
 
 inline bool vk_hasStencilComponent(vk::Format format)
@@ -135,9 +288,8 @@ inline void vk_transitionImageLayout(gs_device_t *device, vk::Image &image,
 				     vk::ImageLayout oldLayout,
 				     vk::ImageLayout newLayout)
 {
-	const auto commandBuffer = device->BeginCommandBuffer();
+	device->BeginCommandBuffer();
 	const auto logicalDevice = device->GetLogicalDevice();
-	const auto physicalDevice = device->GetPhysicalDevice();
 
 	vk::ImageMemoryBarrier barrier(
 		{}, {}, oldLayout, newLayout, VK_QUEUE_FAMILY_IGNORED,
@@ -178,38 +330,140 @@ inline void vk_transitionImageLayout(gs_device_t *device, vk::Image &image,
 	} else
 		throw std::runtime_error("Unsupported layout transition");
 
-	commandBuffer.pipelineBarrier(source, destination, {}, 0, 0, barrier);
-	device->EndCommandBuffer(commandBuffer);
+	device->instantBuffer.pipelineBarrier(source, destination, {}, {}, {}, barrier);
+	device->EndCommandBuffer();
 }
 
 inline void vk_copyBufferToImage(gs_device_t *device, vk::Buffer buffer,
 			  vk::Image &image, uint32_t width, uint32_t height)
 {
-	const auto commandBuffer = device->BeginCommandBuffer();
+	device->BeginCommandBuffer();
 
 	const vk::BufferImageCopy bufferImageCopy(
 		0, width, height, {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
 		{0, 0, 0}, {width, height, 1});
 
-	commandBuffer.copyBufferToImage(buffer, image,
+	device->instantBuffer.copyBufferToImage(buffer, image,
 					vk::ImageLayout::eTransferDstOptimal,
 					bufferImageCopy);
 
-	device->EndCommandBuffer(commandBuffer);
+	device->EndCommandBuffer();
 }
 
 inline void vk_copyImageToBuffer(gs_device_t *device, vk::Image image,
 			  vk::Buffer &buffer, uint32_t width, uint32_t height)
 {
-	const auto commandBuffer = device->BeginCommandBuffer();
+	device->BeginCommandBuffer();
 
 	const vk::BufferImageCopy bufferImageCopy(
 		0, width, height, {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
 		{0, 0, 0}, {width, height, 1});
 
-	commandBuffer.copyImageToBuffer(image,
+	device->instantBuffer.copyImageToBuffer(image,
 					vk::ImageLayout::eTransferSrcOptimal,
 					buffer, bufferImageCopy);
 
-	device->EndCommandBuffer(commandBuffer);
+	device->EndCommandBuffer();
+}
+
+inline void vk_copyImagetoImage(gs_device_t *device, vk::Image srcImage,
+			  vk::Image &dstImage, uint32_t width, uint32_t height)
+{
+	device->BeginCommandBuffer();
+
+	const vk::ImageCopy imageCopy(
+		{vk::ImageAspectFlagBits::eColor, 0, 0, 1}, {0, 0, 0},
+		{vk::ImageAspectFlagBits::eColor, 0, 0, 1}, {0, 0, 0},
+		{width, height, 1});
+	device->instantBuffer.copyImage(srcImage, vk::ImageLayout::eTransferSrcOptimal,
+					dstImage, vk::ImageLayout::eTransferDstOptimal,
+					imageCopy);
+	device->EndCommandBuffer();
+}
+
+inline size_t vk_padUniformBuffer(gs_device_t *device, size_t size)
+{
+	const auto minimumAlignment = device->deviceProperties.limits.minUniformBufferOffsetAlignment;
+	auto alignedSize = size;
+	if (minimumAlignment > 0)
+		alignedSize = (size + minimumAlignment - 1) & ~(minimumAlignment - 1);
+
+	return alignedSize;
+}
+
+inline std::string GetStringBetween(const std::string &str, const std::string &start,
+			     const std::string &end)
+{
+	std::size_t start_pos = str.find_last_of(start);
+	if (start_pos == std::string::npos)
+		return "";
+
+	start_pos += start.length();
+	std::size_t end_pos = str.find(end, start_pos);
+	if (end_pos == std::string::npos)
+		return "";
+
+	return str.substr(start_pos, end_pos - start_pos);
+}
+
+inline std::string GetStringBetweenT(const std::string &line,
+				     const std::string &start,
+				     const std::string &end)
+{
+	size_t start_pos = line.find(start);
+	if (start_pos == std::string::npos)
+		return "";
+
+	start_pos += start.length();
+	size_t end_pos = line.find(end, start_pos);
+	if (end_pos == std::string::npos)
+		return "";
+
+	return line.substr(start_pos, end_pos - start_pos);
+}
+
+inline void AddToStringBetween(std::string &str, const std::string &start,
+			       const std::string &end, const std::string &add)
+{
+	std::size_t start_pos = str.find_last_of(start);
+	if (start_pos == std::string::npos)
+		return;
+
+	start_pos += start.length();
+	std::size_t end_pos = str.find(end, start_pos);
+	if (end_pos == std::string::npos)
+		return;
+
+	str.insert(end_pos, add);
+}
+
+inline void PrependToStringBefore(std::string &str, const std::string &start,
+				  const std::string &add)
+{
+	size_t start_pos = str.find(start);
+	if (start_pos == std::string::npos)
+		return;
+
+	str.insert(start_pos, add);
+}
+
+inline void AppendToStringAfter(std::string &str, const std::string &start,
+				const std::string &add)
+{
+	size_t start_pos = str.find(start);
+	if (start_pos == std::string::npos)
+		return;
+
+	start_pos += start.length();
+	str.insert(start_pos, add);
+}
+
+inline void ReplaceAllInString(std::string &str, const std::string &find,
+			       const std::string &replace)
+{
+	size_t pos = 0;
+	while ((pos = str.find(find, pos)) != std::string::npos) {
+		str.replace(pos, find.length(), replace);
+		pos += replace.length();
+	}
 }

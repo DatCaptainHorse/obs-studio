@@ -26,12 +26,18 @@ gs_stage_surface::gs_stage_surface(gs_device_t *_device, gs_color_format _format
 	size = (size + 3) & 0xFFFFFFFC;
 	size *= height;
 
-	packBuffer = std::make_unique<gs_buffer>(device, size, vk::BufferUsageFlagBits::eTransferSrc,
-				   vk::MemoryPropertyFlagBits::eHostVisible |
-				   vk::MemoryPropertyFlagBits::eHostCoherent);
+	packBuffer = std::make_unique<gs_buffer>(device, vk_type::VK_TEXTUREBUFFER);
+	packBuffer->CreateBuffer(size, vk::BufferUsageFlagBits::eTransferSrc,
+				 vk::MemoryPropertyFlagBits::eHostVisible |
+					 vk::MemoryPropertyFlagBits::eHostCoherent);
 
 	packBuffer->Map();
 	memset(packBuffer->mapped, 0, size);
+}
+
+gs_stage_surface::~gs_stage_surface()
+{
+	packBuffer.reset();
 }
 
 gs_stagesurf_t *device_stagesurface_create(gs_device_t *device, uint32_t width,
@@ -47,4 +53,56 @@ gs_stagesurf_t *device_stagesurface_create(gs_device_t *device, uint32_t width,
 	}
 
 	return stageSurf;
+}
+
+void gs_stagesurface_destroy(gs_stagesurf_t *stagesurf)
+{
+	delete stagesurf;
+}
+
+uint32_t gs_stagesurface_get_width(const gs_stagesurf_t *stagesurf)
+{
+	if (stagesurf)
+		return stagesurf->width;
+
+	return 0;
+}
+
+uint32_t gs_stagesurface_get_height(const gs_stagesurf_t *stagesurf)
+{
+	if (stagesurf)
+		return stagesurf->height;
+
+	return 0;
+}
+
+enum gs_color_format
+gs_stagesurface_get_color_format(const gs_stagesurf_t *stagesurf)
+{
+	if (stagesurf)
+		return stagesurf->format;
+
+	return GS_UNKNOWN;
+}
+
+bool gs_stagesurface_map(gs_stagesurf_t *stagesurf, uint8_t **data,
+			 uint32_t *linesize)
+{
+	if (!stagesurf)
+		return false;
+
+	auto surf = static_cast<gs_stage_surface *>(stagesurf);
+
+	*data = static_cast<uint8_t *>(surf->packBuffer->mapped);
+
+	*linesize = surf->width * gs_get_format_bpp(surf->format) / 8;
+	*linesize = (*linesize + 3) & 0xFFFFFFFC;
+
+	return true;
+}
+
+void gs_stagesurface_unmap(gs_stagesurf_t *stagesurf)
+{
+	// No need to unmap for Vulkan
+	UNUSED_PARAMETER(stagesurf);
 }
