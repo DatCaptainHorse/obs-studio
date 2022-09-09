@@ -232,9 +232,12 @@ QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal, QScrollBa
 }
 
 /* Source Context */
+#contextContainer QPushButton {
+    padding: 4px 10px;
+}
+
 #contextContainer QPushButton[themeID2=contextBarButton] {
-    padding: 3px;
-    margin: 0px;
+    padding: 4px 6px;
 }
 
 #contextContainer QPushButton#sourcePropertiesButton {
@@ -287,6 +290,10 @@ QToolButton:pressed {
 
 * [themeID="removeIconSmall"] {
     qproperty-icon: url(./Dark/minus.svg);
+}
+
+* [themeID="clearIconSmall"] {
+    qproperty-icon: url(./Dark/entry-clear.svg);
 }
 
 * [themeID="propertiesIconSmall"] {
@@ -804,10 +811,6 @@ VisibilityCheckBox::indicator:checked {
 
 VisibilityCheckBox::indicator:unchecked {
     image: url(:res/images/invisible.svg);
-}
-
-* [themeID="trashIcon"] {
-    qproperty-icon: url(./Dark/trash.svg);
 }
 
 * [themeID="revertIcon"] {

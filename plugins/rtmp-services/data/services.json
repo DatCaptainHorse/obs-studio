@@ -353,21 +353,6 @@
             }
         },
         {
-            "name": "Mobcrush",
-            "servers": [
-                {
-                    "name": "Primary",
-                    "url": "rtmp://live.mobcrush.net/mob"
-                }
-            ],
-            "recommended": {
-                "keyint": 2,
-                "profile": "main",
-                "max video bitrate": 6000,
-                "max audio bitrate": 160
-            }
-        },
-        {
             "name": "Web.TV",
             "servers": [
                 {
@@ -2414,6 +2399,14 @@
             "servers": [
                 {
                     "name": "Default",
+                    "url": "rtmp://live-default.streamvi.ru/live"
+                },
+                {
+                    "name": "Russia (Moscow)",
+                    "url": "rtmp://live-msk.streamvi.ru/live"
+                },
+                {
+                    "name": "EU Central: Germany",
                     "url": "rtmp://live1.streamvi.ru/live"
                 }
             ]

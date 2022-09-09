@@ -780,7 +780,12 @@ static void *ffmpeg_mux_io_thread(void *data)
 			if (want_seek) {
 				os_fseeki64(ffm->io.output_file,
 					    next_seek_position, SEEK_SET);
-				current_seek_position = next_seek_position;
+
+				// Update the next virtual position, making sure to take
+				// into account the size of the chunk we're about to write.
+				current_seek_position =
+					next_seek_position + chunk_used;
+
 				want_seek = false;
 			}
 
@@ -1159,14 +1164,14 @@ static inline bool ffmpeg_mux_packet(struct ffmpeg_mux *ffm, uint8_t *buf,
 
 	int ret = av_interleaved_write_frame(ffm->output, ffm->packet);
 
-	if (ret < 0) {
-		fprintf(stderr, "av_interleaved_write_frame failed: %d: %s\n",
-			ret, av_err2str(ret));
-	}
-
 	/* Treat "Invalid data found when processing input" and "Invalid argument" as non-fatal */
 	if (ret == AVERROR_INVALIDDATA || ret == -EINVAL) {
 		return true;
+	}
+
+	if (ret < 0) {
+		fprintf(stderr, "av_interleaved_write_frame failed: %d: %s\n",
+			ret, av_err2str(ret));
 	}
 
 	return ret >= 0;

@@ -2,9 +2,9 @@
 #include "scripts.hpp"
 #include "../../properties-view.hpp"
 #include "../../qt-wrappers.hpp"
+#include "../../plain-text-edit.hpp"
 
 #include <QFileDialog>
-#include <QPlainTextEdit>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QScrollBar>
@@ -81,18 +81,14 @@ struct ScriptData {
 static ScriptData *scriptData = nullptr;
 static ScriptsTool *scriptsWindow = nullptr;
 static ScriptLogWindow *scriptLogWindow = nullptr;
-static QPlainTextEdit *scriptLogWidget = nullptr;
+static OBSPlainTextEdit *scriptLogWidget = nullptr;
 
 /* ----------------------------------------------------------------- */
 
-ScriptLogWindow::ScriptLogWindow() : QWidget(nullptr)
+ScriptLogWindow::ScriptLogWindow() : QDialog(nullptr)
 {
-	const QFont fixedFont =
-		QFontDatabase::systemFont(QFontDatabase::FixedFont);
-
-	QPlainTextEdit *edit = new QPlainTextEdit();
+	OBSPlainTextEdit *edit = new OBSPlainTextEdit();
 	edit->setReadOnly(true);
-	edit->setFont(fixedFont);
 	edit->setWordWrapMode(QTextOption::NoWrap);
 
 	QHBoxLayout *buttonLayout = new QHBoxLayout();
@@ -112,6 +108,8 @@ ScriptLogWindow::ScriptLogWindow() : QWidget(nullptr)
 
 	setLayout(layout);
 	scriptLogWidget = edit;
+
+	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
 	resize(600, 400);
 
@@ -183,8 +181,10 @@ void ScriptLogWindow::Clear()
 
 /* ----------------------------------------------------------------- */
 
-ScriptsTool::ScriptsTool() : QWidget(nullptr), ui(new Ui_ScriptsTool)
+ScriptsTool::ScriptsTool() : QDialog(nullptr), ui(new Ui_ScriptsTool)
 {
+	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
+
 	ui->setupUi(this);
 	RefreshLists();
 

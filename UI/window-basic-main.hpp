@@ -806,6 +806,7 @@ private slots:
 	void TBarReleased();
 
 	void LockVolumeControl(bool lock);
+	void ResetProxyStyleSliders();
 
 private:
 	/* OBS Callbacks */
@@ -1172,6 +1173,8 @@ private slots:
 	void OpenSceneWindow();
 
 	void StackedMixerAreaContextMenuRequested();
+
+	void ResizeOutputSizeOfSource();
 
 public slots:
 	void on_actionResetTransform_triggered();

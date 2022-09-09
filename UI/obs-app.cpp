@@ -1516,7 +1516,7 @@ bool OBSApp::OBSInit()
 	setAttribute(Qt::AA_UseHighDpiPixmaps);
 #endif
 
-	qRegisterMetaType<VoidFunc>();
+	qRegisterMetaType<VoidFunc>("VoidFunc");
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 	if (QApplication::platformName() == "xcb") {
