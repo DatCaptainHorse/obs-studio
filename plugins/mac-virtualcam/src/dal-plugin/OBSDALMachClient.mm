@@ -113,6 +113,7 @@
 
 			IOSurfaceRef surface = IOSurfaceLookupFromMachPort(
 				[framePort machPort]);
+			[framePort invalidate];
 			mach_port_deallocate(mach_task_self(),
 					     [framePort machPort]);
 
@@ -121,9 +122,20 @@
 				return;
 			}
 
+			/*
+			 * IOSurfaceLocks are only necessary on non Apple Silicon devices, as those have
+			 * unified memory. On Intel machines, the lock ensures that the IOSurface is copied back
+			 * from GPU memory to CPU memory so we can process the pixel buffer.
+			 */
+#ifndef __aarch64__
+			IOSurfaceLock(surface, kIOSurfaceLockReadOnly, NULL);
+#endif
 			CVPixelBufferRef frame;
 			CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault,
 							 surface, NULL, &frame);
+#ifndef __aarch64__
+			IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, NULL);
+#endif
 			CFRelease(surface);
 
 			uint64_t timestamp;

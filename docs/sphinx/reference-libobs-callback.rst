@@ -22,7 +22,9 @@ handlers or to procedure handlers.
 
 .. function:: void calldata_free(calldata_t *data)
 
-   Frees a calldata structure.
+   Frees a calldata structure. Should only be used if :c:func:`calldata_init()`
+   was used. If the object is received as a callback parameter, this function
+   should not be used.
 
    :param data: Calldata structure
 
@@ -110,7 +112,9 @@ handlers or to procedure handlers.
 
 .. function:: void *calldata_ptr(const calldata_t *data, const char *name)
 
-   Gets a pointer parameter.
+   Gets a pointer parameter. For example, :ref:`core_signal_handler_reference`
+   that have ``ptr source`` as a parameter requires this function to get the
+   pointer, which can be casted to :c:type:`obs_source_t`. Does not have to be freed.
 
    :param data: Calldata structure
    :param name: Parameter name
@@ -194,6 +198,8 @@ Signals are used for all event-based callbacks.
    :param callback: Signal callback
    :param data:     Private data passed the callback
 
+   For scripting, use :py:func:`signal_handler_connect`.
+
 ---------------------
 
 .. function:: void signal_handler_connect_ref(signal_handler_t *handler, const char *signal, signal_callback_t callback, void *data)
@@ -215,6 +221,8 @@ Signals are used for all event-based callbacks.
    :param handler:  Signal handler object
    :param callback: Signal callback
    :param data:     Private data passed the callback
+
+   For scripting, use :py:func:`signal_handler_disconnect`.
 
 ---------------------
 

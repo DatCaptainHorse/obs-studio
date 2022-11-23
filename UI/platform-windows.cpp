@@ -37,11 +37,6 @@
 #include <util/windows/HRError.hpp>
 #include <util/windows/ComPtr.hpp>
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QWinTaskbarButton>
-#include <QMainWindow>
-#endif
-
 using namespace std;
 
 static inline bool check_path(const char *data, const char *path,
@@ -51,7 +46,7 @@ static inline bool check_path(const char *data, const char *path,
 	str << path << data;
 	output = str.str();
 
-	printf("Attempted path: %s\n", output.c_str());
+	blog(LOG_DEBUG, "Attempted path: %s", output.c_str());
 
 	return os_file_exists(output.c_str());
 }
@@ -174,33 +169,6 @@ uint32_t GetWindowsBuild()
 	}
 
 	return build;
-}
-
-void SetAeroEnabled(bool enable)
-{
-	static HRESULT(WINAPI * func)(UINT) = nullptr;
-	static bool failed = false;
-
-	if (!func) {
-		if (failed) {
-			return;
-		}
-
-		HMODULE dwm = LoadLibraryW(L"dwmapi");
-		if (!dwm) {
-			failed = true;
-			return;
-		}
-
-		func = reinterpret_cast<decltype(func)>(
-			GetProcAddress(dwm, "DwmEnableComposition"));
-		if (!func) {
-			failed = true;
-			return;
-		}
-	}
-
-	func(enable ? DWM_EC_ENABLECOMPOSITION : DWM_EC_DISABLECOMPOSITION);
 }
 
 bool IsAlwaysOnTop(QWidget *window)
@@ -470,35 +438,6 @@ bool IsRunningOnWine()
 	return false;
 }
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-QWinTaskbarButton *taskBtn;
-
-void TaskbarOverlayInit()
-{
-	QMainWindow *main = App()->GetMainWindow();
-	taskBtn = new QWinTaskbarButton(main);
-	taskBtn->setWindow(main->windowHandle());
-}
-
-void TaskbarOverlaySetStatus(TaskbarOverlayStatus status)
-{
-	if (status == TaskbarOverlayStatusInactive) {
-		taskBtn->clearOverlayIcon();
-		return;
-	}
-
-	QIcon icon;
-	if (status == TaskbarOverlayStatusActive) {
-		icon = QIcon::fromTheme("obs-active",
-					QIcon(":/res/images/active.png"));
-	} else {
-		icon = QIcon::fromTheme("obs-paused",
-					QIcon(":/res/images/paused.png"));
-	}
-	taskBtn->setOverlayIcon(icon);
-}
-#else
-
 HWND hwnd;
 void TaskbarOverlayInit()
 {
@@ -554,4 +493,3 @@ void TaskbarOverlaySetStatus(TaskbarOverlayStatus status)
 	}
 	taskbarIcon->Release();
 }
-#endif

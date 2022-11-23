@@ -208,7 +208,7 @@ General Scene Functions
 .. function:: obs_scene_t *obs_scene_get_ref(obs_scene_t *scene)
 
    Returns an incremented reference if still valid, otherwise returns
-   *NULL*.
+   *NULL*. Release with :c:func:`obs_scene_release()`.
 
 ---------------------
 
@@ -265,6 +265,8 @@ General Scene Functions
 .. function:: void obs_scene_enum_items(obs_scene_t *scene, bool (*callback)(obs_scene_t*, obs_sceneitem_t*, void*), void *param)
 
    Enumerates scene items within a scene.
+
+   For scripting, use :py:func:`obs_scene_enum_items`.
 
 ---------------------
 
@@ -547,7 +549,8 @@ Scene Item Functions
 
    :return: An incremented reference to the private settings of the
             scene item.  Allows the front-end to set custom information
-            which is saved with the scene item
+            which is saved with the scene item. Release with
+            :c:func:`obs_data_release()`.
 
 ---------------------
 

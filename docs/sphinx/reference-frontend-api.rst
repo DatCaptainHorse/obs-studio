@@ -178,6 +178,13 @@ Structures/Enumerations
 
      Triggered when the virtual camera is stopped.
 
+   - **OBS_FRONTEND_EVENT_THEME_CHANGED**
+
+     Triggered when the theme is changed.
+
+   - **OBS_FRONTEND_EVENT_SCREENSHOT_TAKEN**
+
+     Triggered when a screenshot is taken.
 
 .. struct:: obs_frontend_source_list
 
@@ -259,7 +266,8 @@ Functions
 
 .. function:: obs_source_t *obs_frontend_get_current_scene(void)
 
-   :return: A new reference to the currently active scene
+   :return: A new reference to the currently active scene. Release with
+            :c:func:`obs_source_release()`.
 
 ---------------------------------------
 
@@ -280,7 +288,8 @@ Functions
 
 .. function:: obs_source_t *obs_frontend_get_current_transition(void)
 
-   :return: A new reference to the currently active transition
+   :return: A new reference to the currently active transition.
+            Release with :c:func:`obs_source_release()`.
 
 ---------------------------------------
 
@@ -605,19 +614,22 @@ Functions
 
 .. function:: obs_output_t *obs_frontend_get_streaming_output(void)
 
-   :return: A new reference to the current streaming output
+   :return: A new reference to the current streaming output.
+            Release with :c:func:`obs_output_release()`.
 
 ---------------------------------------
 
 .. function:: obs_output_t *obs_frontend_get_recording_output(void)
 
-   :return: A new reference to the current srecording output
+   :return: A new reference to the current recording output.
+            Release with :c:func:`obs_output_release()`.
 
 ---------------------------------------
 
 .. function:: obs_output_t *obs_frontend_get_replay_buffer_output(void)
 
-   :return: A new reference to the current replay buffer output
+   :return: A new reference to the current replay buffer output.
+            Release with :c:func:`obs_output_release()`.
 
 ---------------------------------------
 
@@ -643,7 +655,8 @@ Functions
 
 .. function:: obs_service_t *obs_frontend_get_streaming_service(void)
 
-   :return: A new reference to the current streaming service object
+   :return: A new reference to the current streaming service object.
+            Release with :c:func:`obs_service_release()`.
 
 ---------------------------------------
 
@@ -677,7 +690,8 @@ Functions
 .. function:: obs_source_t *obs_frontend_get_current_preview_scene(void)
 
    :return: A new reference to the current preview scene if studio mode
-            is active, or *NULL* if studio mode is not active.
+            is active, or *NULL* if studio mode is not active. Release
+            with :c:func:`obs_source_release()`.
 
 ---------------------------------------
 
@@ -721,7 +735,8 @@ Functions
 
 .. function:: obs_output_t *obs_frontend_get_virtualcam_output(void)
 
-   :return: A new reference to the current virtual camera output
+   :return: A new reference to the current virtual camera output.
+            Release with :c:func:`obs_output_release()`.
 
 ---------------------------------------
 
@@ -785,3 +800,29 @@ Functions
 .. function:: const char *obs_frontend_get_locale_string(const char *string)
 
    :return: Gets the frontend translation of a given string.
+
+---------------------------------------
+
+.. function:: bool obs_frontend_is_theme_dark(void)
+
+   :return: Checks if the current theme is dark or light.
+
+---------------------------------------
+
+.. function:: char *obs_frontend_get_last_recording(void)
+
+   :return: The file path of the last recording. Free with :c:func:`bfree()`
+
+---------------------------------------
+
+.. function:: char *obs_frontend_get_last_screenshot(void)
+
+   :return: The file path of the last screenshot taken. Free with
+            :c:func:`bfree()`
+
+---------------------------------------
+
+.. function:: char *obs_frontend_get_last_replay(void)
+
+   :return: The file path of the last replay buffer saved. Free with
+            :c:func:`bfree()`
